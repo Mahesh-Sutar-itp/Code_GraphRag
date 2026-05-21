@@ -18,7 +18,7 @@ def generate_safe_chroma_id(node_id: str) -> str:
 def ingest_nodes_to_chroma(
     nodes: List[Dict], 
     collection_name: str = os.getenv("CHROMA_COLLECTION_NAME", "codegraph_semantic"),
-    persist_directory: str = os.getenv("CHROMA_PERSIST_DIR", "./data/chroma_db"),
+    persist_directory: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_data"),
     batch_size: int = 1000
 ):
     """
