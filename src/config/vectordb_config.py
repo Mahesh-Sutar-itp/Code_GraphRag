@@ -3,8 +3,8 @@ from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
 from sentence_transformers import SentenceTransformer
 
-path: str="./db"
-collection_name: str="codegraph"
+path: str="./data/chroma_db"
+collection_name: str="codegraph_semantic"
 embedding_model: str = "google/embeddinggemma-300m"
 
 _chroma_client: ClientAPI | None = None
