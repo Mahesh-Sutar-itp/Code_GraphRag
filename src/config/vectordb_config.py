@@ -5,7 +5,7 @@ from sentence_transformers import SentenceTransformer
 
 path: str="./db"
 collection_name: str="codegraph"
-embedding_model: str = "BAAI/bge-base-en-v1.5"
+embedding_model: str = "google/embeddinggemma-300m"
 
 _chroma_client: ClientAPI | None = None
 _collection: Collection | None = None 

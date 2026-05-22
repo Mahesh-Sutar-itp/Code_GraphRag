@@ -21,7 +21,7 @@ def chunk_ast_nodes(nodes: List[Dict], max_tokens: int = 180) -> List[Dict]:
     """
 
     tokenizer = AutoTokenizer.from_pretrained(
-    "sentence-transformers/all-MiniLM-L6-v2"
+    "google/embeddinggemma-300m"
     )
 
     def token_count(text: str) -> int:

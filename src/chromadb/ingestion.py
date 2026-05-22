@@ -4,8 +4,13 @@ import chromadb
 from typing import List, Dict, Union
 from dotenv import load_dotenv
 import os
+from sentence_transformers import SentenceTransformer
 
 load_dotenv()  # Load environment variables from .env file if present
+
+embedding_model = SentenceTransformer(
+    "google/embeddinggemma-300m"
+)
 
 def generate_safe_chroma_id(node_id: str) -> str:
     """
@@ -66,13 +71,24 @@ def ingest_nodes_to_chroma(
             ids.append(safe_id)
             documents.append(doc_text)
             metadatas.append(meta)
+
         
+        embeddings = embedding_model.encode(
+            documents,
+            batch_size=32,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+            convert_to_numpy=True
+        ).tolist()
+
         # Insert or update the batch in ChromaDB
         collection.upsert(
             ids=ids,
             documents=documents,
-            metadatas=metadatas
+            metadatas=metadatas,
+            embeddings=embeddings
         )
+    
         print(f"Processed batch {i // batch_size + 1} ({min(i + batch_size, total_nodes)}/{total_nodes})")
 
     print("Ingestion complete! Full source-code semantic index is ready.")
