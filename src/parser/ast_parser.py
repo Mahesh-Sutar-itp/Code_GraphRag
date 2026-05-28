@@ -12,7 +12,7 @@ from typing import Optional
 
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser, Node
-
+from collections import Counter
 
 # Build the language object once — reused across all parse calls.
 # Loading the grammar has nontrivial cost; doing it module-level
@@ -24,7 +24,6 @@ def _make_parser() -> Parser:
     """Create a fresh Tree-sitter parser bound to the Python grammar."""
     parser = Parser(PY_LANGUAGE)
     return parser
-
 
 def _make_node_id(file_path: str, qualified_name: str) -> str:
     """
@@ -39,7 +38,6 @@ def _make_node_id(file_path: str, qualified_name: str) -> str:
     # Normalize path separators — Neo4j queries from Linux/Mac must match
     normalized = file_path.replace("\\", "/")
     return f"{normalized}::{qualified_name}"
-
 
 def _unwrap_decorated(node: Node) -> Node:
     """
@@ -56,6 +54,37 @@ def _unwrap_decorated(node: Node) -> Node:
                 return child
     return node
 
+def _is_overload(node: Node) -> bool:
+    """
+    Check whether a node is an @overload-decorated function stub.
+
+    Overload stubs are typing hints, not real implementations — their body
+    is just `...`. We skip them during parsing so the graph indexes only the
+    real implementation.
+
+    Matches: @overload, @t.overload, @typing.overload
+
+    Args:
+        node: An AST node (we only care if it's a decorated_definition).
+
+    Returns:
+        True if the node is decorated with some form of @overload.
+    """
+    if node.type != "decorated_definition":
+        return False
+
+    for child in node.children:
+        if child.type == "decorator":
+            # decorator text looks like "@overload" or "@t.overload"
+            text = child.text.decode("utf-8").lstrip("@").strip()
+            # take the part after any dots: "t.overload" -> "overload"
+            last_part = text.split(".")[-1]
+            # handle decorators with args defensively: "overload()" -> "overload"
+            last_part = last_part.split("(")[0].strip()
+            if last_part == "overload":
+                return True
+
+    return False
 
 def _get_name(node: Node) -> Optional[str]:
     """Extract the 'name' identifier from a function or class definition node."""
@@ -63,7 +92,6 @@ def _get_name(node: Node) -> Optional[str]:
     if name_node is None:
         return None
     return name_node.text.decode("utf-8")
-
 
 def _find_definitions(
     node: Node,
@@ -86,6 +114,11 @@ def _find_definitions(
         List of dicts, one per discovered function or class.
     """
     results: list[dict] = []
+
+    # Skip @overload stubs — they're type hints, not real code.
+    # The real implementation (undecorated, or last) is indexed normally.
+    if _is_overload(node):
+        return results
 
     # Tree-sitter wraps decorated definitions — unwrap to handle uniformly
     target = _unwrap_decorated(node)
@@ -153,7 +186,6 @@ def _find_definitions(
 
     return results
 
-
 def _extract_docstring(definition_node: Node) -> Optional[str]:
     """
     Extract docstring from a function or class definition.
@@ -181,7 +213,6 @@ def _extract_docstring(definition_node: Node) -> Optional[str]:
             return None  # first real statement isn't a string
 
     return None
-
 
 def parse_file(file_path: str | Path, repo_root: str | Path) -> list[dict]:
     """
@@ -219,7 +250,6 @@ def parse_file(file_path: str | Path, repo_root: str | Path) -> list[dict]:
     # Walk the tree starting at the root
     return _find_definitions(tree.root_node, source_bytes, relative)
 
-
 def parse_files(file_paths: list[Path], repo_root: str | Path) -> list[dict]:
     """
     Parse a batch of files. Errors in one file don't halt the others.
@@ -241,8 +271,119 @@ def parse_files(file_paths: list[Path], repo_root: str | Path) -> list[dict]:
         for fp, err in errors:
             print(f"    {fp}: {err}")
 
+    # Disambiguate any colliding node_ids (rare: conditional definitions)
+    all_nodes = _disambiguate_nodes(all_nodes)
+
     return all_nodes
 
+def _find_collisions(nodes: list[dict]) -> set[str]:
+    """
+    Find node_ids that appear more than once in the parsed nodes.
+
+    Collisions happen when the same name is defined multiple times in one
+    file — most commonly conditional definitions:
+
+        if WIN:
+            def _get_argv_encoding(): ...   # same node_id
+        else:
+            def _get_argv_encoding(): ...   # same node_id  → collision
+
+    Args:
+        nodes: The full list of parsed node dicts.
+
+    Returns:
+        A set of node_ids that occur 2+ times. Empty set if all unique.
+    """
+    counts = Counter(n["node_id"] for n in nodes)
+    return {node_id for node_id, count in counts.items() if count > 1}
+
+def _disambiguate_nodes(nodes: list[dict]) -> list[dict]:
+    """
+    Make colliding node_ids unique by appending '#<start_line>'.
+
+    Only node_ids that actually collide are modified — clean (unique) node_ids
+    are left exactly as-is. This keeps the common case pristine while resolving
+    genuine duplicates (e.g. platform-conditional definitions:
+    `if WIN: def f() else: def f()`).
+
+    Mutates and returns the same list.
+
+    Example:
+        _compat.py::_get_argv_encoding (line 45) -> _compat.py::_get_argv_encoding#45
+        _compat.py::_get_argv_encoding (line 52) -> _compat.py::_get_argv_encoding#52
+        main.py::login                            -> main.py::login  (unchanged)
+    """
+    collisions = _find_collisions(nodes)
+    if not collisions:
+        return nodes  # nothing to disambiguate — common case, fast exit
+
+    for n in nodes:
+        if n["node_id"] in collisions:
+            original = n["node_id"]
+            n["node_id"] = f"{original}#{n['start_line']}"
+            # Observability: make the rare case loud, not silent
+            print(
+                f"  ⚠ Duplicate '{n['name']}' in {n['file_path']} "
+                f"— disambiguated as ...#{n['start_line']}"
+            )
+
+    return nodes
+
+def build_canonical_map(nodes: list[dict]) -> dict[str, str]:
+    """
+    Map each collided BASE node_id to its FIRST variant by line (C1 policy).
+
+    After _disambiguate_nodes, collided nodes carry a '#<line>' suffix
+    (e.g. 'f.py::foo#45'). But edges from the call extractor use the BASE id
+    ('f.py::foo') — a call site knows the name, not the definition's line.
+    This map lets us redirect those edges to one real target: the first
+    variant by line order.
+
+    '#' never appears in valid paths or identifiers, so it reliably marks a
+    disambiguated node_id.
+
+    Returns:
+        { base_id: first_variant_id }, empty if there were no collisions.
+    """
+    from collections import defaultdict
+
+    groups: dict[str, list[tuple[int, str]]] = defaultdict(list)
+    for n in nodes:
+        nid = n["node_id"]
+        if "#" in nid:
+            base = nid.rsplit("#", 1)[0]
+            groups[base].append((n["start_line"], nid))
+
+    canonical: dict[str, str] = {}
+    for base, variants in groups.items():
+        variants.sort(key=lambda pair: pair[0])  # ascending by line
+        canonical[base] = variants[0][1]          # first variant's full id
+
+    return canonical
+
+def redirect_edges(
+    edges: list[tuple[str, str]], canonical: dict[str, str]
+) -> list[tuple[str, str]]:
+    """
+    Redirect edge endpoints pointing to a collided base id → its first variant.
+
+    Endpoints not in the canonical map are left unchanged (the common case).
+    Self-loops accidentally created by redirection are dropped.
+
+    Returns:
+        A deduplicated list of (caller, callee) edges.
+    """
+    if not canonical:
+        return edges  # no collisions — nothing to redirect
+
+    redirected: list[tuple[str, str]] = []
+    for caller, callee in edges:
+        caller = canonical.get(caller, caller)
+        callee = canonical.get(callee, callee)
+        if caller != callee:  # avoid self-loops from redirect
+            redirected.append((caller, callee))
+
+    return list(set(redirected))  # dedupe
 
 if __name__ == "__main__":
     # Smoke test: parse our test repo and show a summary

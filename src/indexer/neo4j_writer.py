@@ -12,6 +12,8 @@ import os
 from dotenv import load_dotenv
 from neo4j import GraphDatabase, Driver
 
+# Fixed id for the singleton metadata node — the graph holds one repo at a time
+METADATA_ID = "singleton"
 
 # Load .env config at module import time
 load_dotenv()
@@ -34,7 +36,6 @@ def get_driver() -> Driver:
     """Create a Neo4j driver. Caller is responsible for closing it."""
     return GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
-
 def verify_connection() -> bool:
     """Quick health check — returns True if Neo4j is reachable and accepting auth."""
     driver = get_driver()
@@ -47,6 +48,59 @@ def verify_connection() -> bool:
     finally:
         driver.close()
 
+
+def read_index_metadata() -> tuple[str, str] | None:
+    """
+    Read the (repo_url, commit_sha) of the repo currently in the graph.
+
+    Returns None if nothing has been indexed yet (fresh/empty graph). This is
+    the signal the orchestrator uses to decide whether a repo can be skipped.
+
+    Stored in Neo4j (not a file) so it stays consistent with the graph — if
+    the graph is wiped, this metadata vanishes too, preventing false skips.
+    """
+    driver = get_driver()
+    try:
+        with driver.session() as session:
+            result = session.run(
+                """
+                MATCH (m:IndexMetadata {id: $id})
+                RETURN m.repo_url AS url, m.commit_sha AS sha
+                """,
+                id=METADATA_ID,
+            )
+            record = result.single()
+            if record is None:
+                return None
+            return record["url"], record["sha"]
+    finally:
+        driver.close()
+
+def write_index_metadata(repo_url: str, commit_sha: str) -> None:
+    """
+    Store the (repo_url, commit_sha) of the repo just indexed.
+
+    Uses MERGE on a fixed singleton id, so there's always exactly one metadata
+    node — create it the first time, update it on every subsequent index.
+
+    Call this AFTER build_graph, so wipe_graph doesn't delete it.
+    """
+    driver = get_driver()
+    try:
+        with driver.session() as session:
+            session.run(
+                """
+                MERGE (m:IndexMetadata {id: $id})
+                SET m.repo_url = $url,
+                    m.commit_sha = $sha,
+                    m.indexed_at = datetime()
+                """,
+                id=METADATA_ID,
+                url=repo_url,
+                sha=commit_sha,
+            )
+    finally:
+        driver.close()
 
 # ──────────────────────────────────────────────────────────────────────
 # Schema setup

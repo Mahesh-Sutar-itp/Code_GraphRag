@@ -64,6 +64,36 @@ def find_python_files(root_path: str | Path) -> list[Path]:
     # Makes debugging and reproducibility much easier.
     return sorted(collected)
 
+def compute_repo_stats(file_paths: list[Path]) -> dict:
+    """
+    Compute simple size metrics for a set of files.
+
+    Returns:
+        {
+          "total_files": number of files,
+          "total_lines": total physical lines (blanks + comments + code),
+          "code_lines":  non-blank lines (a rough "lines of code" measure),
+        }
+    """
+    total_files = len(file_paths)
+    total_lines = 0
+    code_lines = 0
+
+    for fp in file_paths:
+        try:
+            content = Path(fp).read_text(encoding="utf-8", errors="replace")
+        except (OSError, IOError):
+            continue  # skip unreadable files, don't crash the whole count
+
+        lines = content.splitlines()
+        total_lines += len(lines)
+        code_lines += sum(1 for line in lines if line.strip())
+
+    return {
+        "total_files": total_files,
+        "total_lines": total_lines,
+        "code_lines": code_lines,
+    }
 
 if __name__ == "__main__":
     # Quick smoke test — run this file directly to test on the cloned repo
