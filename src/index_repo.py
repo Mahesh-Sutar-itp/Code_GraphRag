@@ -29,7 +29,7 @@ from src.parser.repo_fetcher import (
 )
 
 
-def index_repository(source: str) -> None:
+def index_repository(source: str, on_progress=None) -> None:
     """
     Run the full pipeline: (cache check) → resolve → discover → parse →
     extract → write → record metadata.
@@ -37,7 +37,14 @@ def index_repository(source: str) -> None:
     `source` can be a local path or a remote repo URL. For URLs, the latest
     commit SHA is checked first; if it matches the last-indexed SHA, the whole
     pipeline is skipped — no clone, no re-index.
+
+    `on_progress(stage, progress)` is an optional callback used by the API to
+    stream progress; stage is one of cloning/parsing/edges/writing/done.
     """
+    def _report(stage: str, progress: int) -> None:
+        if on_progress:
+            on_progress(stage, progress)
+
     print(f"\n{'═' * 70}")
     print(f"  Indexing: {source}")
     print(f"{'═' * 70}\n")
@@ -61,6 +68,7 @@ def index_repository(source: str) -> None:
                 if last_url == source and last_sha == remote_sha:
                     print(f"  ✓ Repo unchanged (SHA {remote_sha[:8]}) — skipping.\n")
                     print("Already indexed. Open http://localhost:7474 to explore.")
+                    _report("done", 100)
                     return
             print(f"  ✓ New/changed repo (SHA {remote_sha[:8]}) — will index.\n")
         else:
@@ -70,6 +78,7 @@ def index_repository(source: str) -> None:
 
     # Step 2: resolve the source (clone if URL, passthrough if local)
     print("Step 2/6: Resolving source...")
+    _report("cloning", 20)
     try:
         repo_path, is_temp = resolve_repo_source(source)
     except (FileNotFoundError, RuntimeError) as e:
@@ -84,6 +93,7 @@ def index_repository(source: str) -> None:
         print(f"  ✓ Found {len(files)} files")
         if not files:
             print("  Nothing to index.")
+            _report("done", 100)
             return
 
         # Repo size metrics
@@ -95,11 +105,13 @@ def index_repository(source: str) -> None:
 
         # Step 4: extract definitions
         print("Step 4/6: Extracting definitions...")
+        _report("parsing", 45)
         nodes = parse_files(files, repo_path)
         print(f"  ✓ Extracted {len(nodes)} definitions\n")
 
         # Step 5: extract call edges + C1 redirect
         print("Step 5/6: Extracting call edges...")
+        _report("edges", 65)
         edges = extract_all_edges(files, repo_path, nodes)
         canonical = build_canonical_map(nodes)
         if canonical:
@@ -109,6 +121,7 @@ def index_repository(source: str) -> None:
 
         # Step 6: write to Neo4j
         print("Step 6/6: Writing to Neo4j...")
+        _report("writing", 85)
         file_contents = collect_files(files, repo_path)
         build_graph(nodes, edges, files=file_contents)
 
@@ -131,6 +144,7 @@ def index_repository(source: str) -> None:
         print("Open http://localhost:7474 to explore the graph.")
         print("Try this Cypher query to see everything:")
         print("    MATCH (n) RETURN n")
+        _report("done", 100)
 
     finally:
         # Always clean up the temp clone, even if indexing failed
@@ -139,7 +153,7 @@ def index_repository(source: str) -> None:
             _safe_rmtree(repo_path)
             print(f"  ✓ Temp directory removed")
 
-
+            
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python -m src.index_repo <path_or_url>")

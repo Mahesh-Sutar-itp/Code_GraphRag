@@ -5,6 +5,9 @@ Run from project root:
     uvicorn api.main:app --reload --port 8000
 """
 
+import threading
+import uuid
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -15,10 +18,32 @@ from src.indexer.neo4j_writer import (
     read_file_content,
     read_subgraph,
 )
+from src.index_repo import index_repository
 
 
 class SubgraphRequest(BaseModel):
     node_ids: list[str]
+
+
+class IndexRequest(BaseModel):
+    url: str
+
+
+# In-memory job store (resets on server restart — fine for single-repo dev)
+index_jobs: dict[str, dict] = {}
+
+
+def _run_index_job(job_id: str, url: str) -> None:
+    def on_progress(stage: str, progress: int) -> None:
+        index_jobs[job_id].update(status="running", stage=stage, progress=progress)
+
+    try:
+        index_repository(url, on_progress=on_progress)
+        index_jobs[job_id].update(status="completed", stage="done", progress=100)
+    except BaseException as e:
+        # catches SystemExit from the indexer's sys.exit too
+        index_jobs[job_id].update(status="failed", error=str(e))
+
 
 app = FastAPI(title="CodeGraph Indexer API")
 
@@ -109,3 +134,29 @@ def get_file(repo_id: str, path: str):
 def get_subgraph(req: SubgraphRequest):
     """Return full nodes + CALLS edges among the given node_ids."""
     return read_subgraph(req.node_ids)
+
+
+@app.post("/index-repository")
+def start_index(req: IndexRequest):
+    """Start indexing a repo URL in the background; returns a job id to poll."""
+    job_id = str(uuid.uuid4())
+    index_jobs[job_id] = {
+        "job_id": job_id,
+        "status": "queued",
+        "stage": "cloning",
+        "progress": 0,
+        "error": None,
+    }
+    threading.Thread(
+        target=_run_index_job, args=(job_id, req.url), daemon=True
+    ).start()
+    return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/index-repository/{job_id}/status")
+def index_status(job_id: str):
+    """Poll the status of a background indexing job."""
+    job = index_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
