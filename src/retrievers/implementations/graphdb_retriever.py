@@ -1,15 +1,11 @@
-from opentelemetry import trace
-
 from src.config.graphdb_config import get_neo4j_driver
 from src.retrievers.interfaces.graphdb_retriever import IRelationshipExtractor
 
-# tracer=trace.get_tracer(__name__)
 
 class RelationshipExtractor(IRelationshipExtractor):
     def __init__(self):
         self.driver = get_neo4j_driver()
 
-    # @tracer.start_as_current_span("RelationshipExtractor.get_raw_source_code")
     def get_raw_source_code(self, seed_ids: list[str]) -> str:
         """
         Tier 1 Context: Traverses the sealed door to get the heavy payload.
@@ -21,11 +17,7 @@ class RelationshipExtractor(IRelationshipExtractor):
         # RETURN node.name AS name, document.source_code AS code
         # """
 
-        query="""
-        MATCH (node)
-        WHERE node.node_id IN $seed_ids
-        RETURN node.name as name, node.source_code as code
-        """
+        query=""" MATCH (node) WHERE node.node_id IN $seed_ids RETURN node.name as name, node.source_code as code """
         with self.driver.session() as session:
             results = session.run(query, seed_ids=seed_ids)
             
@@ -34,7 +26,6 @@ class RelationshipExtractor(IRelationshipExtractor):
                 formatted_code += f"**{record['name']}**\n```\n{record['code']}\n```\n"
             return formatted_code
 
-    # @tracer.start_as_current_span("RelationshipExtractor.get_related_nodes")
     def get_related_nodes(self, seed_ids: list[str], num_hops: int = 1) -> str:
         """
         Tier 2 Context: Maps architectural edges.

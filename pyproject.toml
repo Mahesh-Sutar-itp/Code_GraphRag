@@ -6,9 +6,14 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "arize-phoenix>=15.11.1",
+    "arize-phoenix-otel>=0.16.1",
+    "asyncpg>=0.31.0",
     "chromadb>=1.5.9",
     "google-adk[extensions]>=2.0.0",
     "google-cloud-resource-manager>=1.17.0",
     "neo4j>=6.2.0",
+    "openinference-instrumentation-google-adk>=0.1.14",
+    "openinference-instrumentation-litellm>=0.1.34",
+    "psycopg2-binary>=2.9.12",
     "sentence-transformers>=5.5.0",
 ]
