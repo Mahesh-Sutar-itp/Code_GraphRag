@@ -212,8 +212,8 @@ def get_relevant_nodes_for_resolver(
     for ranked_node in sorted_ranked_nodes:
 
         # Uncomment below retrieval pipeline function call once setup is done and comment function returning dummy data.
-        retrieved_node: GraphNode = retrieval_pipeline.retrieve_node(ranked_node.node_id)
-        # retrieved_node: GraphNode = get_static_pricing_node_by_id(ranked_node.node_id)
+        # retrieved_node: GraphNode = retrieval_pipeline.retrieve_node(ranked_node.node_id)
+        retrieved_node: GraphNode = get_static_pricing_node_by_id(ranked_node.node_id)
 
         properties = dict(retrieved_node.properties or {})
         source_code: str = str(properties.get("source_code", None) or "")
@@ -245,7 +245,7 @@ def get_relevant_nodes_for_resolver(
     )
 
 
-def success_response(msg: str) -> str:
+def success_response(msg: str, relevant_node_ids: list[str] = []) -> str:
     """
     Return JSON string for successful workflow completion.
     Suitable for sending as final event-stream payload.
@@ -254,6 +254,7 @@ def success_response(msg: str) -> str:
         "status": "Success",
         "code": 200,
         "msg": msg,
+        "node_ids": relevant_node_ids,
     })
 
 
@@ -266,6 +267,7 @@ def error_response(code: str, msg: str) -> str:
         "status": "Internal Server Error",
         "code": code,
         "msg": msg,
+        "node_ids": []
     })
 
 

@@ -9,3 +9,4 @@ class QueryResolutionResponse(BaseModel):
     status: str
     code: str
     msg: str
+    node_ids: list[str]
