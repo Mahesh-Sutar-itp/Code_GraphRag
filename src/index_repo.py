@@ -8,13 +8,16 @@ Example:
     python -m src.index_repo test_repos/ai-engineering-journey/projects/vector-db-comparison
 """
 
+import os
 import sys
 from pathlib import Path
 
+from src.chromadb.node_chunker import chunk_ast_nodes
 from src.parser.file_discovery import find_python_files
 from src.parser.ast_parser import parse_files
 from src.parser.call_extractor import extract_all_edges
 from src.indexer.neo4j_writer import build_graph, verify_connection
+from src.chromadb.ingestion import ingest_nodes_to_chroma
 
 
 def index_repository(repo_path: str | Path) -> None:
@@ -30,14 +33,14 @@ def index_repository(repo_path: str | Path) -> None:
     print(f"{'═' * 70}\n")
 
     # Step 0: verify Neo4j is alive before doing any work
-    print("Step 0/4: Verifying Neo4j connection...")
+    print("Step 0/5: Verifying Neo4j connection...")
     if not verify_connection():
         print("  ✗ Cannot reach Neo4j. Is it running?")
         sys.exit(1)
     print("  ✓ Connected\n")
 
     # Step 1: discover .py files
-    print("Step 1/4: Discovering Python files...")
+    print("Step 1/5: Discovering Python files...")
     files = find_python_files(repo_path)
     print(f"  ✓ Found {len(files)} files\n")
     if not files:
@@ -45,19 +48,25 @@ def index_repository(repo_path: str | Path) -> None:
         return
 
     # Step 2: extract definitions (functions, methods, classes)
-    print("Step 2/4: Extracting definitions...")
+    print("Step 2/5: Extracting definitions...")
     nodes = parse_files(files, repo_path)
     print(f"  ✓ Extracted {len(nodes)} definitions\n")
 
     # Step 3: extract call edges
-    print("Step 3/4: Extracting call edges...")
+    print("Step 3/5: Extracting call edges...")
     edges = extract_all_edges(files, repo_path, nodes)
     print(f"  ✓ Extracted {len(edges)} edges\n")
 
-    # Step 4: write to Neo4j
-    print("Step 4/4: Writing to Neo4j...")
+    #Step 4: Ingest nodes into ChromaDB for semantic search
+    print("Step 4/5: Ingesting nodes into ChromaDB for semantic search...")
+    chunked_nodes = chunk_ast_nodes(nodes, max_tokens=180)
+    ingest_nodes_to_chroma(chunked_nodes)
+ 
+
+    # Step 5: write to Neo4j
+    print("Step 5/5: Writing to Neo4j...")
     build_graph(nodes, edges)
-    print()
+    print("  ✓ Written to Neo4j\n")
 
     print(f"{'═' * 70}")
     print("  ✓ Indexing complete")
