@@ -12,7 +12,7 @@ Examples:
 import sys
 from pathlib import Path
 
-from src.parser.file_discovery import find_python_files, compute_repo_stats
+from src.parser.file_discovery import find_python_files, compute_repo_stats, collect_files
 from src.parser.ast_parser import parse_files, build_canonical_map, redirect_edges
 from src.parser.call_extractor import extract_all_edges
 from src.indexer.neo4j_writer import (
@@ -109,7 +109,8 @@ def index_repository(source: str) -> None:
 
         # Step 6: write to Neo4j
         print("Step 6/6: Writing to Neo4j...")
-        build_graph(nodes, edges)
+        file_contents = collect_files(files, repo_path)
+        build_graph(nodes, edges, files=file_contents)
 
         # Record metadata so future runs can skip if unchanged (URLs only)
         if is_url(source) and remote_sha:

@@ -95,6 +95,27 @@ def compute_repo_stats(file_paths: list[Path]) -> dict:
         "code_lines": code_lines,
     }
 
+def collect_files(file_paths: list[Path], repo_root: Path) -> list[dict]:
+    """
+    Read each file and return its repo-relative path, name, and full content.
+    Used to persist file contents as :File nodes, so the UI can show a file
+    tree and view raw file contents without keeping the cloned repo on disk.
+    """
+    root = Path(repo_root).resolve()
+    files = []
+    for fp in file_paths:
+        try:
+            content = Path(fp).read_text(encoding="utf-8", errors="replace")
+        except (OSError, IOError):
+            continue
+        rel = Path(fp).resolve().relative_to(root).as_posix()
+        files.append({
+            "path": rel,
+            "name": Path(fp).name,
+            "content": content,
+        })
+    return files
+
 if __name__ == "__main__":
     # Quick smoke test — run this file directly to test on the cloned repo
     import sys

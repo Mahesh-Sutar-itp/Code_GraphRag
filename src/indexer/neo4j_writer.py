@@ -136,6 +136,10 @@ def ensure_constraints(driver: Driver) -> None:
             CREATE CONSTRAINT class_node_id IF NOT EXISTS
             FOR (c:Class) REQUIRE c.node_id IS UNIQUE
         """)
+        session.run("""
+            CREATE CONSTRAINT file_path IF NOT EXISTS
+            FOR (file:File) REQUIRE file.path IS UNIQUE
+        """)
     print("  ✓ Uniqueness constraints in place")
 
 
@@ -217,6 +221,29 @@ def write_edges(driver: Driver, edges: list[tuple[str, str]]) -> int:
     return created
 
 
+def write_files(driver: Driver, files: list[dict]) -> None:
+    """
+    Insert one :File node per source file, holding its full content.
+
+    Lets the API serve a file tree and raw file contents without keeping the
+    cloned repo on disk — the graph becomes the single source of truth.
+    """
+    if not files:
+        print("  ✓ No files to store")
+        return
+
+    with driver.session() as session:
+        session.run(
+            """
+            UNWIND $files AS file
+            CREATE (f:File)
+            SET f = file
+            """,
+            files=files,
+        )
+
+    print(f"  ✓ Stored {len(files)} file nodes")
+
 # ──────────────────────────────────────────────────────────────────────
 # Sanity & inspection
 # ──────────────────────────────────────────────────────────────────────
@@ -227,10 +254,12 @@ def print_summary(driver: Driver) -> None:
         funcs = session.run("MATCH (f:Function) RETURN count(f) AS n").single()["n"]
         classes = session.run("MATCH (c:Class) RETURN count(c) AS n").single()["n"]
         calls = session.run("MATCH ()-[r:CALLS]->() RETURN count(r) AS n").single()["n"]
+        files = session.run("MATCH (f:File) RETURN count(f) AS n").single()["n"]
 
     print("\n  Graph contents:")
     print(f"    :Function nodes : {funcs}")
     print(f"    :Class nodes    : {classes}")
+    print(f"    :File nodes     : {files}")
     print(f"    :CALLS edges    : {calls}")
 
 
@@ -238,9 +267,13 @@ def print_summary(driver: Driver) -> None:
 # Top-level orchestration
 # ──────────────────────────────────────────────────────────────────────
 
-def build_graph(nodes: list[dict], edges: list[tuple[str, str]]) -> None:
+def build_graph(
+    nodes: list[dict],
+    edges: list[tuple[str, str]],
+    files: list[dict] | None = None,
+) -> None:
     """
-    End-to-end: wipe → constraints → nodes → edges → summary.
+    End-to-end: wipe → constraints → nodes → edges → files → summary.
 
     This is the one function the indexer pipeline calls.
     """
@@ -250,6 +283,8 @@ def build_graph(nodes: list[dict], edges: list[tuple[str, str]]) -> None:
         ensure_constraints(driver)
         write_nodes(driver, nodes)
         write_edges(driver, edges)
+        if files:
+            write_files(driver, files)
         print_summary(driver)
     finally:
         driver.close()
