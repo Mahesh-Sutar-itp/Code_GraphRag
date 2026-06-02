@@ -6,7 +6,7 @@ from google.genai.types import Content
 
 from src.agent.agents import create_planner_agent, create_resolver_agent
 from src.agent.models import GraphEdge, GraphNode, PlannerInput, PlannerOutput, ResolverInput
-from src.agent.state_keys import USER_QUERY_KEY
+from src.agent.state_keys import QUERY_SPECIFIC_RELEVANT_NODES_KEY, USER_QUERY_KEY
 from src.agent.utils_functions import error_response, extract_text_from_content, get_dummy_planner_output, get_pricing_graph_data, get_relevant_nodes_for_resolver, parse_planner_input_or_raise, parse_planner_output_or_raise, parse_resolver_input_or_raise, success_response
 
 @node(name="query_context_fetcher", rerun_on_resume=False)
@@ -79,6 +79,7 @@ async def agent_workflow(ctx: Context, node_input:Content):
 
     try:
         structured_relevant_nodes: ResolverInput = parse_resolver_input_or_raise(relevant_input=relevant_nodes)
+        ctx.session.state[QUERY_SPECIFIC_RELEVANT_NODES_KEY]=[node.node_id for node in structured_relevant_nodes.code_nodes]
     except ValueError:
         logging.exception("Invalid Resolver Input Structure while fetching relevant nodes from PlannerOutput")
         return error_response("500", msg="Something went wrong while resolving query. Please try again.")
@@ -90,4 +91,4 @@ async def agent_workflow(ctx: Context, node_input:Content):
         logging.exception("Faced error while executing relevant_ranked_nodes_fetcher for Resolver Agent")
         return error_response("500", msg="Something went wrong while resolving query. Please try again.")
 
-    return success_response(msg=resolved_output)
+    return success_response(msg=resolved_output, relevant_node_ids=ctx.session.state.get(QUERY_SPECIFIC_RELEVANT_NODES_KEY,[]))
