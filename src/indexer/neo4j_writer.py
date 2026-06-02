@@ -131,6 +131,43 @@ def read_file_content(path: str) -> str | None:
         driver.close()
 
 
+def read_subgraph(node_ids: list[str]) -> dict:
+    """
+    Given node_ids, return their full node data + the CALLS edges between them.
+
+    Used by the /subgraph endpoint: the inference pipeline returns which
+    node_ids are relevant; the edges come from the precomputed graph here.
+    """
+    driver = get_driver()
+    try:
+        with driver.session() as session:
+            node_result = session.run(
+                """
+                MATCH (n)
+                WHERE n.node_id IN $node_ids
+                RETURN n.node_id AS node_id, n.name AS name, n.kind AS kind,
+                       n.file_path AS file_path, n.start_line AS start_line,
+                       n.end_line AS end_line, n.source_code AS source_code
+                """,
+                node_ids=node_ids,
+            )
+            nodes = [dict(r) for r in node_result]
+
+            edge_result = session.run(
+                """
+                MATCH (a)-[:CALLS]->(b)
+                WHERE a.node_id IN $node_ids AND b.node_id IN $node_ids
+                RETURN a.node_id AS source, b.node_id AS target
+                """,
+                node_ids=node_ids,
+            )
+            edges = [dict(r) for r in edge_result]
+    finally:
+        driver.close()
+
+    return {"nodes": nodes, "edges": edges}
+
+
 def write_index_metadata(
     repo_url: str,
     commit_sha: str,

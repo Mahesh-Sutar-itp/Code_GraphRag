@@ -7,12 +7,18 @@ Run from project root:
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from src.indexer.neo4j_writer import (
     read_repo_info,
     read_file_paths,
     read_file_content,
+    read_subgraph,
 )
+
+
+class SubgraphRequest(BaseModel):
+    node_ids: list[str]
 
 app = FastAPI(title="CodeGraph Indexer API")
 
@@ -97,3 +103,9 @@ def get_file(repo_id: str, path: str):
         raise HTTPException(status_code=404, detail="File not found")
     language = "python" if path.endswith(".py") else "text"
     return {"path": path, "content": content, "language": language}
+
+
+@app.post("/subgraph")
+def get_subgraph(req: SubgraphRequest):
+    """Return full nodes + CALLS edges among the given node_ids."""
+    return read_subgraph(req.node_ids)
