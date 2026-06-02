@@ -1,0 +1,1 @@
+USER_QUERY_KEY="user_query"
