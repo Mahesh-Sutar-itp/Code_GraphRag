@@ -59,7 +59,7 @@ def index_repository(repo_path: str | Path) -> None:
 
     #Step 4: Ingest nodes into ChromaDB for semantic search
     print("Step 4/5: Ingesting nodes into ChromaDB for semantic search...")
-    chunked_nodes = chunk_ast_nodes(nodes, max_tokens=180)
+    chunked_nodes = chunk_ast_nodes(nodes, max_tokens=512)
     ingest_nodes_to_chroma(chunked_nodes)
  
 
