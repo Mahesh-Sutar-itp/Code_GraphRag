@@ -105,6 +105,32 @@ def read_repo_info() -> dict | None:
         driver.close()
 
 
+def read_file_paths() -> list[str]:
+    """Return all stored :File paths (used to build the file tree)."""
+    driver = get_driver()
+    try:
+        with driver.session() as session:
+            result = session.run("MATCH (f:File) RETURN f.path AS path")
+            return [r["path"] for r in result]
+    finally:
+        driver.close()
+
+
+def read_file_content(path: str) -> str | None:
+    """Return the content of a single stored file, or None if not found."""
+    driver = get_driver()
+    try:
+        with driver.session() as session:
+            result = session.run(
+                "MATCH (f:File {path: $path}) RETURN f.content AS content",
+                path=path,
+            )
+            record = result.single()
+            return record["content"] if record else None
+    finally:
+        driver.close()
+
+
 def write_index_metadata(
     repo_url: str,
     commit_sha: str,
