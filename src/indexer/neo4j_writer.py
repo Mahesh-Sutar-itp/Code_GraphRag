@@ -36,6 +36,7 @@ def get_driver() -> Driver:
     """Create a Neo4j driver. Caller is responsible for closing it."""
     return GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
+
 def verify_connection() -> bool:
     """Quick health check — returns True if Neo4j is reachable and accepting auth."""
     driver = get_driver()
@@ -76,12 +77,45 @@ def read_index_metadata() -> tuple[str, str] | None:
     finally:
         driver.close()
 
-def write_index_metadata(repo_url: str, commit_sha: str) -> None:
-    """
-    Store the (repo_url, commit_sha) of the repo just indexed.
 
-    Uses MERGE on a fixed singleton id, so there's always exactly one metadata
-    node — create it the first time, update it on every subsequent index.
+def read_repo_info() -> dict | None:
+    """
+    Read full metadata of the currently-indexed repo, for the API's
+    /repos endpoint. Returns None if nothing is indexed.
+    """
+    driver = get_driver()
+    try:
+        with driver.session() as session:
+            result = session.run(
+                """
+                MATCH (m:IndexMetadata {id: $id})
+                RETURN m.repo_url AS url, m.commit_sha AS sha,
+                       m.name AS name,
+                       m.total_files AS total_files,
+                       m.total_lines AS total_lines,
+                       toString(m.indexed_at) AS indexed_at
+                """,
+                id=METADATA_ID,
+            )
+            record = result.single()
+            if record is None:
+                return None
+            return dict(record)
+    finally:
+        driver.close()
+
+
+def write_index_metadata(
+    repo_url: str,
+    commit_sha: str,
+    name: str = "",
+    total_files: int = 0,
+    total_lines: int = 0,
+) -> None:
+    """
+    Store metadata for the repo just indexed: url, commit sha, display name,
+    and size stats. Uses MERGE on a fixed singleton id, so there's always
+    exactly one metadata node.
 
     Call this AFTER build_graph, so wipe_graph doesn't delete it.
     """
@@ -93,11 +127,17 @@ def write_index_metadata(repo_url: str, commit_sha: str) -> None:
                 MERGE (m:IndexMetadata {id: $id})
                 SET m.repo_url = $url,
                     m.commit_sha = $sha,
+                    m.name = $name,
+                    m.total_files = $total_files,
+                    m.total_lines = $total_lines,
                     m.indexed_at = datetime()
                 """,
                 id=METADATA_ID,
                 url=repo_url,
                 sha=commit_sha,
+                name=name,
+                total_files=total_files,
+                total_lines=total_lines,
             )
     finally:
         driver.close()
@@ -141,7 +181,6 @@ def ensure_constraints(driver: Driver) -> None:
             FOR (file:File) REQUIRE file.path IS UNIQUE
         """)
     print("  ✓ Uniqueness constraints in place")
-
 
 # ──────────────────────────────────────────────────────────────────────
 # Writes

@@ -114,7 +114,14 @@ def index_repository(source: str) -> None:
 
         # Record metadata so future runs can skip if unchanged (URLs only)
         if is_url(source) and remote_sha:
-            write_index_metadata(source, remote_sha)
+            repo_name = source.replace("https://github.com/", "").replace(".git", "").rstrip("/")
+            write_index_metadata(
+                source,
+                remote_sha,
+                name=repo_name,
+                total_files=stats["total_files"],
+                total_lines=stats["total_lines"],
+            )
             print(f"  ✓ Recorded index metadata (SHA {remote_sha[:8]})")
         print()
 
