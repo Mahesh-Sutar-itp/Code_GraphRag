@@ -1,5 +1,5 @@
 """
-End-to-end indexer — scans a repo, parses it, writes the graph to Neo4j.
+End-to-end indexer — scans a repo, parses it, embeds it, writes the graph to Neo4j.
 
 Usage:
     python -m src.index_repo <path_or_url>
@@ -9,6 +9,7 @@ Examples:
     python -m src.index_repo https://github.com/pallets/click
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -27,12 +28,14 @@ from src.parser.repo_fetcher import (
     is_url,
     get_remote_sha,
 )
+from src.chromadb.node_chunker import chunk_ast_nodes
+from src.chromadb.ingestion import ingest_nodes_to_chroma
 
 
 def index_repository(source: str, on_progress=None) -> None:
     """
     Run the full pipeline: (cache check) → resolve → discover → parse →
-    extract → write → record metadata.
+    extract → embed (ChromaDB) → write (Neo4j) → record metadata.
 
     `source` can be a local path or a remote repo URL. For URLs, the latest
     commit SHA is checked first; if it matches the last-indexed SHA, the whole
@@ -50,14 +53,14 @@ def index_repository(source: str, on_progress=None) -> None:
     print(f"{'═' * 70}\n")
 
     # Step 0: verify Neo4j is alive before doing any work
-    print("Step 0/6: Verifying Neo4j connection...")
+    print("Step 0/7: Verifying Neo4j connection...")
     if not verify_connection():
         print("  ✗ Cannot reach Neo4j. Is it running?")
         sys.exit(1)
     print("  ✓ Connected\n")
 
     # Step 1: SHA cache check (URLs only) — skip if repo is unchanged
-    print("Step 1/6: Checking for changes...")
+    print("Step 1/7: Checking for changes...")
     remote_sha = None
     if is_url(source):
         remote_sha = get_remote_sha(source)
@@ -77,7 +80,7 @@ def index_repository(source: str, on_progress=None) -> None:
         print("  ✓ Local path — skipping cache check.\n")
 
     # Step 2: resolve the source (clone if URL, passthrough if local)
-    print("Step 2/6: Resolving source...")
+    print("Step 2/7: Resolving source...")
     _report("cloning", 20)
     try:
         repo_path, is_temp = resolve_repo_source(source)
@@ -88,7 +91,7 @@ def index_repository(source: str, on_progress=None) -> None:
 
     try:
         # Step 3: discover .py files
-        print("Step 3/6: Discovering Python files...")
+        print("Step 3/7: Discovering Python files...")
         files = find_python_files(repo_path)
         print(f"  ✓ Found {len(files)} files")
         if not files:
@@ -104,13 +107,13 @@ def index_repository(source: str, on_progress=None) -> None:
         )
 
         # Step 4: extract definitions
-        print("Step 4/6: Extracting definitions...")
+        print("Step 4/7: Extracting definitions...")
         _report("parsing", 45)
         nodes = parse_files(files, repo_path)
         print(f"  ✓ Extracted {len(nodes)} definitions\n")
 
         # Step 5: extract call edges + C1 redirect
-        print("Step 5/6: Extracting call edges...")
+        print("Step 5/7: Extracting call edges...")
         _report("edges", 65)
         edges = extract_all_edges(files, repo_path, nodes)
         canonical = build_canonical_map(nodes)
@@ -119,8 +122,14 @@ def index_repository(source: str, on_progress=None) -> None:
             print(f"  ✓ Redirected edges for {len(canonical)} disambiguated function(s)")
         print(f"  ✓ Extracted {len(edges)} edges\n")
 
-        # Step 6: write to Neo4j
-        print("Step 6/6: Writing to Neo4j...")
+        # Step 6: ingest nodes into ChromaDB for semantic search (friend 2's step)
+        print("Step 6/7: Ingesting nodes into ChromaDB for semantic search...")
+        chunked_nodes = chunk_ast_nodes(nodes, max_tokens=512)
+        ingest_nodes_to_chroma(chunked_nodes)
+        print("  ✓ Ingested into ChromaDB\n")
+
+        # Step 7: write to Neo4j
+        print("Step 7/7: Writing to Neo4j...")
         _report("writing", 85)
         file_contents = collect_files(files, repo_path)
         build_graph(nodes, edges, files=file_contents)
@@ -153,7 +162,7 @@ def index_repository(source: str, on_progress=None) -> None:
             _safe_rmtree(repo_path)
             print(f"  ✓ Temp directory removed")
 
-            
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python -m src.index_repo <path_or_url>")

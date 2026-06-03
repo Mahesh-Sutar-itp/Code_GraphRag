@@ -1,0 +1,160 @@
+import hashlib
+import json
+import chromadb
+from typing import List, Dict, Union
+from dotenv import load_dotenv
+import os
+from sentence_transformers import SentenceTransformer
+from src.config.vectordb_config import embedding_model
+
+load_dotenv()  # Load environment variables from .env file if present
+
+embedding_model = SentenceTransformer(
+    embedding_model
+)
+pool = embedding_model.start_multi_process_pool()
+
+def generate_safe_chroma_id(node_id: str) -> str:
+    """
+    Generates a deterministic, safe-length ID for ChromaDB (< 128 bytes).
+    We use MD5 hashing to ensure the ID is always exactly 32 characters long,
+    and deterministic so re-ingesting the same node updates it rather than duplicating.
+    """
+    return hashlib.md5(node_id.encode('utf-8')).hexdigest()
+
+def get_existing_hashes(collection, ids):
+    result = collection.get(
+        ids=ids,
+        include=["metadatas"]
+    )
+
+    hashes = {}
+
+    for idx, meta in zip(result["ids"], result["metadatas"]):
+        hashes[idx] = meta.get("content_hash")
+
+    return hashes
+
+def ingest_nodes_to_chroma(
+    nodes: List[Dict], 
+    collection_name: str = os.getenv("CHROMA_COLLECTION_NAME", "codegraph_semantic"),
+    persist_directory: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_data"),
+    chroma_batch_size: int = 1000
+):
+    """
+    Ingests a list of parsed AST nodes into ChromaDB.
+    
+    Args:
+        nodes: List of dictionaries containing node data.
+        collection_name: Name of the ChromaDB collection.
+        persist_directory: Local path to save the vector database.
+        chroma_batch_size: Number of documents to insert at once.
+    """
+    print(f"Initializing ChromaDB client at {persist_directory}...")
+    client = chromadb.PersistentClient(path=persist_directory)
+    
+    # We use the embedding model ("google/embeddinggemma-300m") under the hood.
+    collection = client.get_or_create_collection(name=collection_name,
+                                                 metadata={"hnsw:space": "cosine",     # Best formula for text/code search
+                                                           "hnsw:search_ef": 100       # Forces deep searching to prevent missing the top match
+                                                           })
+    
+    total_nodes = len(nodes)
+    print(f"Starting ingestion of {total_nodes} nodes into collection '{collection_name}'...")
+
+
+    existing = collection.get(include=["metadatas"])
+
+    existing_hashes = {
+        idx: meta.get("content_hash")
+        for idx, meta in zip(
+            existing["ids"],
+            existing["metadatas"]
+        )
+    }
+
+    for i in range(0, total_nodes, chroma_batch_size):
+        batch = nodes[i:i + chroma_batch_size]
+        
+        ids = []
+        documents = []
+        metadatas = []
+        
+        for node in batch:
+            # 1. Generate the safe < 128 byte ID
+            # safe_id = generate_safe_chroma_id(node["node_id"])
+            safe_id = f"{node.get('chroma_id', 'unknown_id')}"
+             # 2. Format the document text (this is what gets vectorized/embedded)
+            # We combine kind, name, docstring and source codeto give the embedding model good context
+            doc_text = ( 
+                f"{node.get('document', '')}" )
+            # 3. Build the metadata
+            # The metadata holds the bridge back to Neo4j.
+            # We omit storing 'source_code' here to save disk space, 
+            # because Neo4j acts as the source of truth for the raw text.
+            meta = node.get('metadata', {})
+            
+            ids.append(safe_id)
+            documents.append(doc_text)
+            metadatas.append(meta)
+
+
+        filtered_ids = []
+        filtered_docs = []
+        filtered_meta = []
+
+        for id_, doc, meta in zip( ids, documents, metadatas):
+            existing_hash = existing_hashes.get(id_)
+
+            if existing_hash == meta["content_hash"]:
+                continue
+
+            filtered_ids.append(id_)
+            filtered_docs.append(doc)
+            filtered_meta.append(meta)
+
+        if not filtered_docs:
+            continue
+
+        embeddings = embedding_model.encode_multi_process(
+            filtered_docs,
+            batch_size=128,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+            pool=pool
+        )
+
+        # Insert or update the batch in ChromaDB
+        collection.upsert(
+            ids=filtered_ids,
+            documents=filtered_docs,
+            metadatas=filtered_meta,
+            embeddings=embeddings.tolist()
+        )
+    
+        print(f"Processed batch {i // chroma_batch_size + 1} ({min(i + chroma_batch_size, total_nodes)}/{total_nodes})")
+        
+    current_ids = {node["chroma_id"] for node in nodes}
+
+    existing = collection.get(include=[])
+
+    existing_ids = set(existing["ids"])
+
+    stale_ids = list(
+        existing_ids - current_ids
+    )
+
+    if stale_ids:
+        collection.delete(ids=stale_ids)
+    print("Ingestion complete! Full source-code semantic index is ready.")
+
+
+# ==========================================
+# Helper functions for flexibility
+# ==========================================
+
+def load_nodes_from_file(filepath: str) -> List[Dict]:
+    """Optional helper if you decide to write nodes to a JSON intermediary file."""
+    with open(filepath, 'r', encoding='utf-8') as f:
+        return json.load(f)

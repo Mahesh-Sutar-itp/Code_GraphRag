@@ -1,0 +1,2 @@
+USER_QUERY_KEY="user_query"
+QUERY_SPECIFIC_RELEVANT_NODES_KEY="query_specific_relevant_nodes"
