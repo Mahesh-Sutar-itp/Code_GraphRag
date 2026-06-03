@@ -1,33 +1,76 @@
+from typing import Any, Dict, List
 from src.config.vectordb_config import get_collection, get_embedder
+from src.retrievers.implementations.BM25_retriever import BM25Retriever
 from src.retrievers.interfaces.vectordb_retriever import ISemanticSearch
+from src.retrievers.implementations.rrf_fusion import rrf_fusion
+from src.retrievers.implementations.code_reranker import CodeReranker
 
-
+# Dense vector retriever using ChromaDB
 class SemanticSearch(ISemanticSearch):
-    def __init__(self, top_k=2):
+    def __init__(self, top_k=20):
         self.collection = get_collection()
         self.embedder = get_embedder()
         self.top_k = top_k 
 
-    def get_seed_ids(self, query: str) -> list[str]:
+    def get_seeds(self, query: str) -> List[Dict[str]]:
         """
         Phase 1: Embeds the query and fetches deterministic IDs.
         """
-        query_vector = self.embedder.encode(query, normalize_embeddings=True).tolist()
+
+        query_text = f"task: code retrieval | query: {query}"
+        query_vector = self.embedder.encode(query_text, normalize_embeddings=True).tolist()
         
         results = self.collection.query(
-            query_embeddings=query_vector,
+            query_embeddings=[query_vector],
             n_results=self.top_k,
-            include=["metadatas"]
+            include=["metadatas",
+                     "distances"]
         )
         
         # Graceful degradation if the DB is empty
         if not results['metadatas'] or not results['metadatas'][0]:
             return []
             
-        # Strictly extract the deterministic neo4j_node_id
+        output = []
+
+        for meta, distance in zip( results["metadatas"][0], results["distances"][0]):
+            output.append(
+                {
+                    "id": meta["node_id"],
+                    "score": 1 - distance,
+                    "metadata": meta
+                }
+            )
+
+        return output
+        
+    
+
+class HybridRetriever:
+
+    def __init__(self):
+
+        self.dense = SemanticSearch()
+        self.bm25 = BM25Retriever()
+        self.reranker = CodeReranker()
+
+    def get_seed_ids( self, query: str) -> List[str]:
+
+        dense_results = (self.dense.get_seeds(query, top_k=20))
+        bm25_results = (self.bm25.search(query,top_k=20))
+        fused = rrf_fusion([ dense_results, bm25_results])
+        reranked = (self.reranker.rerank( query, fused, top_k=10))
+
+        seen = set()
+
         seed_ids = []
-        for metadata in results['metadatas'][0]:
-            if "neo4j_node_id" in metadata:
-                seed_ids.append(metadata["neo4j_node_id"])
-                
+
+        for item in reranked:
+
+            node_id = item["metadata"]["node_id"]
+
+            if node_id not in seen:
+                seed_ids.append(node_id)
+                seen.add(node_id)
+
         return seed_ids

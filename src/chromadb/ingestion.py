@@ -5,7 +5,9 @@ from typing import List, Dict, Union
 from dotenv import load_dotenv
 import os
 from sentence_transformers import SentenceTransformer
+from src.chromadb.BM25_Ingest import BM25Index
 from src.config.vectordb_config import embedding_model
+from src.config.vectordb_config import bm25_path
 
 load_dotenv()  # Load environment variables from .env file if present
 
@@ -73,12 +75,21 @@ def ingest_nodes_to_chroma(
         )
     }
 
+    def bm25_ingest(batch: List[Dict], path: str = "bm25.pkl"):
+        bm25 = BM25Index()
+
+        bm25.build(batch)
+
+        bm25.save(path)
+
     for i in range(0, total_nodes, chroma_batch_size):
         batch = nodes[i:i + chroma_batch_size]
         
         ids = []
         documents = []
         metadatas = []
+        
+        bm25_ingest(batch, path=bm25_path)
         
         for node in batch:
             # 1. Generate the safe < 128 byte ID

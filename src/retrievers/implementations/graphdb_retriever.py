@@ -1,95 +1,143 @@
 from src.config.graphdb_config import get_neo4j_driver
 from src.retrievers.interfaces.graphdb_retriever import IRelationshipExtractor
-
+from src.agent.models import GraphNode, GraphEdge
 
 class RelationshipExtractor(IRelationshipExtractor):
     def __init__(self):
         self.driver = get_neo4j_driver()
 
-    def get_raw_source_code(self, seed_ids: list[str]) -> str:
-        """
-        Tier 1 Context: Traverses the sealed door to get the heavy payload.
-        """
-        # query = """
-        # MATCH (node)
-        # WHERE node.node_id IN $seed_ids
-        # MATCH (node)-[:HAS_SOURCE_CODE]->(document:Document)
-        # RETURN node.name AS name, document.source_code AS code
-        # """
+    # def get_raw_source_code(self, seed_ids: list[str]) -> str:
+    #     """
+    #     Tier 1 Context: Traverses the sealed door to get the heavy payload.
+    #     """
+    #     # query = """
+    #     # MATCH (node)
+    #     # WHERE node.node_id IN $seed_ids
+    #     # MATCH (node)-[:HAS_SOURCE_CODE]->(document:Document)
+    #     # RETURN node.name AS name, document.source_code AS code
+    #     # """
 
-        query=""" MATCH (node) WHERE node.node_id IN $seed_ids RETURN node.name as name, node.source_code as code """
-        with self.driver.session() as session:
-            results = session.run(query, seed_ids=seed_ids)
+    #     query=""" MATCH (node) WHERE node.node_id IN $seed_ids RETURN node.name as name, node.source_code as code """
+    #     with self.driver.session() as session:
+    #         results = session.run(query, seed_ids=seed_ids)
             
-            formatted_code = "### Target Nodes' Source Code\n"
-            for record in results:
-                formatted_code += f"**{record['name']}**\n```\n{record['code']}\n```\n"
-            return formatted_code
+    #         formatted_code = "### Target Nodes' Source Code\n"
+    #         for record in results:
+    #             formatted_code += f"**{record['name']}**\n```\n{record['code']}\n```\n"
+    #         return formatted_code
 
-    def get_related_nodes(self, seed_ids: list[str], num_hops: int = 1) -> str:
+    def get_raw_source_code(self, node_ids: list[str]) -> list[GraphNode]:
+        """
+        Retrieve complete node information for a set of node_ids.
+
+        No graph traversal.
+        No relationship expansion.
+
+        Returns:
+            {
+                "nodes": List[GraphNode]
+            }
+        """
+
+        if not node_ids:
+            return {"nodes": []}
+
+        with self.driver.session() as session:
+
+            query = """
+            MATCH (n)
+            WHERE n.node_id IN $node_ids
+
+            RETURN
+                n.node_id AS node_id,
+                n.name AS name,
+                n.kind AS kind,
+                n.file_path AS file_path,
+                n.docstring AS docstring,
+                n.source_code AS source_code
+            """
+
+            results = session.run(query, node_ids=node_ids)
+
+            nodes = []
+
+            for record in results:
+
+                nodes.append(
+                    GraphNode(
+                        node_id=record["node_id"],
+                        properties={
+                            "name": record["name"],
+                            "kind": record["kind"],
+                            "file_path": record["file_path"],
+                            "docstring": record["docstring"] or "",
+                            "source_code": record["source_code"] or ""
+                        }
+                    )
+                )
+
+            return list(nodes)
+        
+    def get_related_nodes(self, seed_ids: list[str], num_hops: int = 1) -> tuple[list[GraphNode], list[GraphEdge], list[str]]:
         """
         Tier 2 Context: Maps architectural edges.
         Splits incoming and outgoing relations to guarantee accurate directional formatting.
         """
         safe_hops: int = max(1,min(int(num_hops),2))
-        formatted_structure = f"### Structural Dependencies \n"
         
-        with self.driver.session() as session:
+        with self.driver.session() as session:    
             
-            # =========================================================
-            # PASS 1: Seed is the Callee (Incoming / Impact)
-            # What components depend ON our seed node? (A -> B -> Seed)
-            # =========================================================
-            query_incoming = f"""
-            MATCH (seed) WHERE seed.node_id IN $seed_ids
-            MATCH path = (caller)-[:CALLS|INHERITS|INSTANTIATES|IMPORTS*1..{safe_hops}]->(seed)
-            RETURN 
-            [n IN nodes(path) | {{
-                node_id: n.node_id,
-                name: n.name,
-                kind: n.kind,
-                file_path: n.file_path,
-                start_line: n.start_line,
-                end_line: n.end_line,
-                docstring: n.docstring
-            }}] AS path_nodes,
+            query = f"""
+            MATCH (seed)
+            WHERE seed.node_id IN $seed_ids
 
+            MATCH path = (seed)-[:CALLS|INHERITS|INSTANTIATES|IMPORTS*1..$safe_hops]-(related)
 
-            [rel IN relationships(path) | type(rel)] AS path_rels
+            UNWIND relationships(path) AS rel
+
+            RETURN DISTINCT
+            startNode(rel) AS caller,
+            endNode(rel) AS callee,
+            type(rel) AS rel_type
             """
-            results_incoming = session.run(query_incoming, seed_ids=seed_ids) # type: ignore
-            
-            formatted_structure += "\n#### Impact (Nodes that depend on this code):\n"
-            for record in results_incoming:
-                formatted_structure += self._format_path(record['path_nodes'], record['path_rels'])
 
-            # =========================================================
-            # PASS 2: Seed is the Caller (Outgoing / Dependencies)
-            # What components does our seed node depend ON? (Seed -> C -> D)
-            # =========================================================
-            query_outgoing = f"""
-            MATCH (seed) WHERE seed.node_id IN $seed_ids
-            MATCH path = (seed)-[:CALLS|INHERITS|INSTANTIATES|IMPORTS*1..{safe_hops}]->(callee)
-            RETURN             
-            [n IN nodes(path) | {{
-                node_id: n.node_id,
-                name: n.name,
-                kind: n.kind,
-                file_path: n.file_path,
-                start_line: n.start_line,
-                end_line: n.end_line,
-                docstring: n.docstring
-            }}] AS path_nodes,
+            results = session.run(query, seed_ids=seed_ids, safe_hops=safe_hops) # type: ignore
+            nodes = {}
+            edge_set = set()
+            edges = []
+            for record in results:
 
-            [rel IN relationships(path) | type(rel)] AS path_rels
-            """
-            results_outgoing = session.run(query_outgoing, seed_ids=seed_ids) # type: ignore
-            
-            formatted_structure += "\n#### Dependencies (Code that this node relies on):\n"
-            for record in results_outgoing:
-                formatted_structure += self._format_path(record['path_nodes'], record['path_rels'])
+                caller = record["caller"]
+                callee = record["callee"]
+
+                for neo_node in [caller, callee]:
+                    props = dict(neo_node)
+                    node_id = neo_node["node_id"]
+
+                    if node_id not in nodes:
+
+                        nodes[node_id] = GraphNode(
+                            node_id=node_id,
+                            properties={
+                                "name": props.get("name"),
+                                "kind": props.get("kind"),
+                                "file_path": props.get("file_path"),
+                                "docstring": props.get("docstring", "")
+                            }
+                        )
+                edge_key = ( caller["node_id"], callee["node_id"], record["rel_type"])
+                if edge_key not in edge_set:
+                    edge_set.add(edge_key)
+
+                    edges.append(
+                        GraphEdge(
+                            caller_node_id=caller["node_id"],
+                            callee_node_id=callee["node_id"],
+                            relation_type=record["rel_type"]
+                        )
+                    )
                 
-        return formatted_structure
+        return list(nodes.values()), edges, seed_ids
 
     def _format_path(self, path_nodes: list, path_rels: list) -> str:
         """Helper method to dynamically stitch the N-hop path together."""
