@@ -10,3 +10,9 @@ class QueryResolutionResponse(BaseModel):
     code: str
     msg: str
     node_ids: list[str]
+
+class SubgraphRequest(BaseModel):
+    node_ids: list[str]
+
+class IndexRequest(BaseModel):
+    url: str

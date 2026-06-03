@@ -25,25 +25,25 @@ class RetrievalPipeline:
         
         # Graceful Degradation: If Chroma returns [], halt before hitting Neo4j.
         if not seed_ids:
-            return "I don't have relevant code indexed for this query yet."
+            return ([],[])
 
         # Phase 2: Tiered Graph Fetch (Neo4j)
         # Fetch the related nodes and edges for the seed IDs.
-        graph_nodes, graph_edges, seeds = self.relationship_extractor.get_related_nodes(seed_ids, safe_hops=2)
+        graph_nodes, graph_edges, seeds = self.relationship_extractor.get_related_nodes(seed_ids, num_hops=2)
 
         return graph_nodes, graph_edges
         
     
-    def retrieve_nodes(self, seed_ids: list[str]) -> list[GraphNode]:
+    def retrieve_node(self, seed_id: str) -> GraphNode | None:
         """
         Retrieves the asked nodes' source code and relationship.
         """
         # Graceful Degradation: If Chroma returns [], halt before hitting Neo4j.
-        if not seed_ids:
-            return "I don't have relevant code indexed for this query yet."
+        if not seed_id:
+            return None
 
         # Phase 2: Tiered Graph Fetch (Neo4j)
         # Path A: get the raw source code for the asked nodes.
-        graph_nodes = self.relationship_extractor.get_raw_source_code(seed_ids)
+        graph_node: GraphNode | None = self.relationship_extractor.get_node_data(seed_id)
         
-        return graph_nodes
+        return graph_node

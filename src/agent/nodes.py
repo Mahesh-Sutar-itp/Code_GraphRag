@@ -8,18 +8,19 @@ from src.agent.agents import create_planner_agent, create_resolver_agent
 from src.agent.models import GraphEdge, GraphNode, PlannerInput, PlannerOutput, ResolverInput
 from src.agent.state_keys import QUERY_SPECIFIC_RELEVANT_NODES_KEY, USER_QUERY_KEY
 from src.agent.utils_functions import error_response, extract_text_from_content, get_dummy_planner_output, get_pricing_graph_data, get_relevant_nodes_for_resolver, parse_planner_input_or_raise, parse_planner_output_or_raise, parse_resolver_input_or_raise, success_response
+from src.retrievers.retrieval_pipeline import RetrievalPipeline
 
 @node(name="query_context_fetcher", rerun_on_resume=False)
 def fetch_query_context_for_planner_agent(ctx: Context, node_input: str):
-    # Call Retrieval Pipeline once setup instead of below function returning dummy data.
-    query_context: tuple[list[GraphNode], list[GraphEdge]]=get_pricing_graph_data()
+    retrieval_pipeline: RetrievalPipeline = RetrievalPipeline()
+    query_context: tuple[list[GraphNode], list[GraphEdge]]=retrieval_pipeline.retrieve_structure(user_query=node_input)
     return PlannerInput(user_query=node_input, code_nodes=query_context[0], code_edges=query_context[1])
 
 @node(name="relevant_ranked_nodes_fetcher", rerun_on_resume=False)
 def fetch_relevant_ranked_nodes_for_resolver_agent(ctx: Context, node_input: PlannerOutput):
     user_query=ctx.session.state.get(USER_QUERY_KEY, "")
-    # Call Retrieval Pipeline once setup instead of below function returning dummy data.
-    return get_relevant_nodes_for_resolver(user_query=user_query, planner_output=node_input, retrieval_pipeline=None, total_input_context_window_tokens=8000)
+    retrieval_pipeline: RetrievalPipeline = RetrievalPipeline()
+    return get_relevant_nodes_for_resolver(user_query=user_query, planner_output=node_input, retrieval_pipeline=retrieval_pipeline, total_input_context_window_tokens=8000)
 
 
 # # Testable dummy planner output returning node. Removable after test.
@@ -44,6 +45,8 @@ async def agent_workflow(ctx: Context, node_input:Content):
 
     try:
         structured_planner_input: PlannerInput = parse_planner_input_or_raise(query_context)
+        if not structured_planner_input.code_nodes and structured_planner_input.code_edges:
+            return success_response(msg="Unfortunately, context isn't enough to respond to your query. Please try another query.")
     except ValueError:
         logging.exception("Invalid Planner Input Structure from Query Context")
         return error_response(code="500", msg="Something went wrong while finding the code data related to your query. Please try again.")
@@ -79,6 +82,8 @@ async def agent_workflow(ctx: Context, node_input:Content):
 
     try:
         structured_relevant_nodes: ResolverInput = parse_resolver_input_or_raise(relevant_input=relevant_nodes)
+        if not structured_relevant_nodes.code_nodes:
+            return error_response(code="500", msg="Faced error while resolving the code data during resolution.")
         ctx.session.state[QUERY_SPECIFIC_RELEVANT_NODES_KEY]=[node.node_id for node in structured_relevant_nodes.code_nodes]
     except ValueError:
         logging.exception("Invalid Resolver Input Structure while fetching relevant nodes from PlannerOutput")
