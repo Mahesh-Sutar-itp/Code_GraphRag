@@ -171,7 +171,7 @@ def sorted_node_ids_by_final_score(ranked_nodes: list[RankedNode]) -> list[str]:
 def get_relevant_nodes_for_resolver(
     user_query: str,
     planner_output: PlannerOutput,
-    retrieval_pipeline: RetrievalPipeline | None,
+    retrieval_pipeline: RetrievalPipeline,
     total_input_context_window_tokens: int,
     max_context_fraction_for_source: float = 0.50,
 ) -> ResolverInput:
@@ -212,8 +212,10 @@ def get_relevant_nodes_for_resolver(
     for ranked_node in sorted_ranked_nodes:
 
         # Uncomment below retrieval pipeline function call once setup is done and comment function returning dummy data.
-        # retrieved_node: GraphNode = retrieval_pipeline.retrieve_node(ranked_node.node_id)
-        retrieved_node: GraphNode = get_static_pricing_node_by_id(ranked_node.node_id)
+        retrieved_node: GraphNode | None = retrieval_pipeline.retrieve_node(seed_id=ranked_node.node_id)
+        # retrieved_node: GraphNode = get_static_pricing_node_by_id(ranked_node.node_id)
+        if retrieved_node is None:
+            continue
 
         properties = dict(retrieved_node.properties or {})
         source_code: str = str(properties.get("source_code", None) or "")

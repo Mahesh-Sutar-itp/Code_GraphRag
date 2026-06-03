@@ -11,10 +11,9 @@ from src.config.vectordb_config import bm25_path
 
 load_dotenv()  # Load environment variables from .env file if present
 
-embedding_model = SentenceTransformer(
+embed_model: SentenceTransformer = SentenceTransformer(
     embedding_model
 )
-pool = embedding_model.start_multi_process_pool()
 
 def generate_safe_chroma_id(node_id: str) -> str:
     """
@@ -32,8 +31,12 @@ def get_existing_hashes(collection, ids):
 
     hashes = {}
 
-    for idx, meta in zip(result["ids"], result["metadatas"]):
-        hashes[idx] = meta.get("content_hash")
+    
+    metadatas = result.get("metadatas") or []
+    ids = result.get("ids") or []
+
+    for idx, meta in zip(ids, metadatas):
+        hashes[idx] = meta.get("content_hash") if meta else None
 
     return hashes
 
@@ -70,17 +73,19 @@ def ingest_nodes_to_chroma(
     existing_hashes = {
         idx: meta.get("content_hash")
         for idx, meta in zip(
-            existing["ids"],
-            existing["metadatas"]
+            existing.get("ids", []),
+            existing.get("metadatas") or []
         )
     }
 
-    def bm25_ingest(batch: List[Dict], path: str = "bm25.pkl"):
+    def bm25_ingest(nodes: List[Dict], path: str = "bm25.pkl"):
         bm25 = BM25Index()
 
-        bm25.build(batch)
+        bm25.build(nodes)
 
-        bm25.save(path)
+        bm25.save(nodes)
+
+    bm25_ingest(nodes, path=bm25_path)
 
     for i in range(0, total_nodes, chroma_batch_size):
         batch = nodes[i:i + chroma_batch_size]
@@ -88,9 +93,7 @@ def ingest_nodes_to_chroma(
         ids = []
         documents = []
         metadatas = []
-        
-        bm25_ingest(batch, path=bm25_path)
-        
+                
         for node in batch:
             # 1. Generate the safe < 128 byte ID
             # safe_id = generate_safe_chroma_id(node["node_id"])
@@ -127,13 +130,12 @@ def ingest_nodes_to_chroma(
         if not filtered_docs:
             continue
 
-        embeddings = embedding_model.encode_multi_process(
+        embeddings = embed_model.encode(
             filtered_docs,
             batch_size=128,
             normalize_embeddings=True,
             show_progress_bar=False,
-            convert_to_numpy=True,
-            pool=pool
+            device=['cpu','cpu','cpu','cpu']
         )
 
         # Insert or update the batch in ChromaDB
@@ -146,7 +148,7 @@ def ingest_nodes_to_chroma(
     
         print(f"Processed batch {i // chroma_batch_size + 1} ({min(i + chroma_batch_size, total_nodes)}/{total_nodes})")
         
-    current_ids = {node["chroma_id"] for node in nodes}
+    current_ids = {node.get("chroma_id", "unknown_id") for node in nodes}
 
     existing = collection.get(include=[])
 

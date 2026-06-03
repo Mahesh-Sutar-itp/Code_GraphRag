@@ -12,7 +12,7 @@ class SemanticSearch(ISemanticSearch):
         self.embedder = get_embedder()
         self.top_k = top_k 
 
-    def get_seeds(self, query: str) -> List[Dict[str]]:
+    def get_seeds(self, query: str) -> List[Dict[str, Any]]:
         """
         Phase 1: Embeds the query and fetches deterministic IDs.
         """
@@ -30,13 +30,26 @@ class SemanticSearch(ISemanticSearch):
         # Graceful degradation if the DB is empty
         if not results['metadatas'] or not results['metadatas'][0]:
             return []
+        
+        
+        if not results["distances"] or not results["distances"][0]:
+            return []
             
         output = []
 
         for meta, distance in zip( results["metadatas"][0], results["distances"][0]):
+            
+            if meta is None:
+                continue
+
+            node_id = meta.get("node_id")
+
+            if node_id is None:
+                continue
+
             output.append(
                 {
-                    "id": meta["node_id"],
+                    "id": node_id,
                     "score": 1 - distance,
                     "metadata": meta
                 }
@@ -50,13 +63,13 @@ class HybridRetriever:
 
     def __init__(self):
 
-        self.dense = SemanticSearch()
+        self.dense = SemanticSearch(top_k=20)
         self.bm25 = BM25Retriever()
         self.reranker = CodeReranker()
 
     def get_seed_ids( self, query: str) -> List[str]:
 
-        dense_results = (self.dense.get_seeds(query, top_k=20))
+        dense_results = (self.dense.get_seeds(query))
         bm25_results = (self.bm25.search(query,top_k=20))
         fused = rrf_fusion([ dense_results, bm25_results])
         reranked = (self.reranker.rerank( query, fused, top_k=10))

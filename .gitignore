@@ -33,6 +33,7 @@ ENV/
 data/
 test_repos/
 src/test_repos/
+chroma_data/
 
 # ──────────────────────────────────────────────────
 # IDE

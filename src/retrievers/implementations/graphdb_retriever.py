@@ -26,7 +26,7 @@ class RelationshipExtractor(IRelationshipExtractor):
     #             formatted_code += f"**{record['name']}**\n```\n{record['code']}\n```\n"
     #         return formatted_code
 
-    def get_raw_source_code(self, node_ids: list[str]) -> list[GraphNode]:
+    def get_node_data(self, node_id: str) -> GraphNode | None:
         """
         Retrieve complete node information for a set of node_ids.
 
@@ -39,15 +39,12 @@ class RelationshipExtractor(IRelationshipExtractor):
             }
         """
 
-        if not node_ids:
-            return {"nodes": []}
+        if not node_id:
+            return None
 
         with self.driver.session() as session:
-
             query = """
-            MATCH (n)
-            WHERE n.node_id IN $node_ids
-
+            MATCH (n) WHERE n.node_id = $node_id
             RETURN
                 n.node_id AS node_id,
                 n.name AS name,
@@ -55,28 +52,29 @@ class RelationshipExtractor(IRelationshipExtractor):
                 n.file_path AS file_path,
                 n.docstring AS docstring,
                 n.source_code AS source_code
+                n.start_line AS start_line
+                n.end_line AS end_line
             """
 
-            results = session.run(query, node_ids=node_ids)
+            result = session.run(query, node_id=node_id)
 
-            nodes = []
+            record = result.single()
 
-            for record in results:
-
-                nodes.append(
-                    GraphNode(
-                        node_id=record["node_id"],
-                        properties={
-                            "name": record["name"],
-                            "kind": record["kind"],
-                            "file_path": record["file_path"],
-                            "docstring": record["docstring"] or "",
-                            "source_code": record["source_code"] or ""
-                        }
-                    )
+            if record is None:
+                return None
+            else:
+                return GraphNode(
+                    node_id=record["node_id"],
+                    properties={
+                        "name": record["name"],
+                        "kind": record["kind"],
+                        "file_path": record["file_path"],
+                        "docstring": record["docstring"] or "",
+                        "source_code": record["source_code"] or "",
+                        "start_line": record["start_line"] or "",
+                        "end_line": record["end_line"] or ""
+                    }
                 )
-
-            return list(nodes)
         
     def get_related_nodes(self, seed_ids: list[str], num_hops: int = 1) -> tuple[list[GraphNode], list[GraphEdge], list[str]]:
         """
