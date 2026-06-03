@@ -3,9 +3,10 @@ from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
 from sentence_transformers import SentenceTransformer
 
-path: str="./data/chroma_db"
+chroma_path: str="./data/chroma_db"
 collection_name: str="codegraph_semantic"
 embedding_model: str = "google/embeddinggemma-300m"
+bm25_path: str = "./data/bm25.pkl"
 
 _chroma_client: ClientAPI | None = None
 _collection: Collection | None = None 
@@ -15,7 +16,7 @@ def get_chroma_client() -> ClientAPI:
     global _chroma_client
 
     if _chroma_client is None:
-        _chroma_client = chromadb.PersistentClient(path)
+        _chroma_client = chromadb.PersistentClient(path=chroma_path)
 
     return _chroma_client
 
