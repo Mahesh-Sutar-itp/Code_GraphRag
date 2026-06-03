@@ -254,7 +254,7 @@ def success_response(msg: str, relevant_node_ids: list[str] = []) -> str:
     """
     return json.dumps({
         "status": "Success",
-        "code": 200,
+        "code": "200",
         "msg": msg,
         "node_ids": relevant_node_ids,
     })

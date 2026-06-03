@@ -24,7 +24,8 @@ class SemanticSearch(ISemanticSearch):
             query_embeddings=[query_vector],
             n_results=self.top_k,
             include=["metadatas",
-                     "distances"]
+                     "distances",
+                     "documents"]
         )
         
         # Graceful degradation if the DB is empty
@@ -37,7 +38,11 @@ class SemanticSearch(ISemanticSearch):
             
         output = []
 
-        for meta, distance in zip( results["metadatas"][0], results["distances"][0]):
+        metadatas = results["metadatas"][0] if results["metadatas"] else []
+        distances = results["distances"][0] if results["distances"] else []
+        documents = results["documents"][0] if results["documents"] else []
+        print(documents)
+        for meta, distance, doc in zip( metadatas, distances, documents):
             
             if meta is None:
                 continue
@@ -51,6 +56,7 @@ class SemanticSearch(ISemanticSearch):
                 {
                     "id": node_id,
                     "score": 1 - distance,
+                    "document": doc,
                     "metadata": meta
                 }
             )

@@ -51,8 +51,8 @@ class RelationshipExtractor(IRelationshipExtractor):
                 n.kind AS kind,
                 n.file_path AS file_path,
                 n.docstring AS docstring,
-                n.source_code AS source_code
-                n.start_line AS start_line
+                n.source_code AS source_code,
+                n.start_line AS start_line,
                 n.end_line AS end_line
             """
 
@@ -89,7 +89,7 @@ class RelationshipExtractor(IRelationshipExtractor):
             MATCH (seed)
             WHERE seed.node_id IN $seed_ids
 
-            MATCH path = (seed)-[:CALLS|INHERITS|INSTANTIATES|IMPORTS*1..$safe_hops]-(related)
+            MATCH path = (seed)-[:CALLS|INHERITS|INSTANTIATES|IMPORTS*1..{safe_hops}]-(related)
 
             UNWIND relationships(path) AS rel
 
@@ -99,7 +99,7 @@ class RelationshipExtractor(IRelationshipExtractor):
             type(rel) AS rel_type
             """
 
-            results = session.run(query, seed_ids=seed_ids, safe_hops=safe_hops) # type: ignore
+            results = session.run(query, seed_ids=seed_ids) # type: ignore
             nodes = {}
             edge_set = set()
             edges = []
