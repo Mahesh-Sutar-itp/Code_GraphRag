@@ -149,6 +149,8 @@ def resolve_user_query(request: QueryResolutionRequest):
 
     query_resolver=QueryResolutionWorkflow(user_id=request.user_id, session_id=request.session_id)
     response=query_resolver.resolve_query(query=request.user_query)
+    print(f"Raw response from QueryResolutionWorkflow: {response}")
+    logging.info(f"Raw response from QueryResolutionWorkflow: {response}")
     try:
         structured_response=parse_query_resolution_response_or_raise(response)
     except Exception:

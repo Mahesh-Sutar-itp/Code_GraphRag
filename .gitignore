@@ -34,6 +34,7 @@ data/
 test_repos/
 src/test_repos/
 chroma_data/
+main_try.py
 
 # ──────────────────────────────────────────────────
 # IDE

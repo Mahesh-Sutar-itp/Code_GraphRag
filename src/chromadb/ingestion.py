@@ -133,7 +133,7 @@ def ingest_nodes_to_chroma(
 
         embeddings = embed_model.encode(
             filtered_docs,
-            batch_size=128,
+            batch_size=64,
             normalize_embeddings=True,
             show_progress_bar=False,
             device='cpu'

@@ -38,8 +38,10 @@ class BM25Retriever:
                 {
                     "id": doc["metadata"]["node_id"],
                     "score": float(score),
+                    "document": doc.get("document", ""),
                     "metadata": doc["metadata"]
                 }
             )
+            print(f"BM25 Candidate: {doc.get('document', '')} with score {score} and results {results}")
 
         return results

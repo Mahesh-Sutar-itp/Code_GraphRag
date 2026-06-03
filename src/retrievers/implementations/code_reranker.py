@@ -5,7 +5,8 @@ class CodeReranker:
     def __init__(self):
 
         self.model = CrossEncoder(
-            "jinaai/jina-reranker-v2-base-multilingual"
+            "Alibaba-NLP/gte-reranker-modernbert-base",
+            trust_remote_code=True
         )
 
     def rerank(self, query, candidates, top_k=10):
@@ -14,8 +15,9 @@ class CodeReranker:
 
         for c in candidates:
 
-            pairs.append((query, c["metadata"]["document"]))
-
+            pairs.append((query, c.get("document") or ""))
+        print("Printing Pairs for Reranking:")
+        print(pairs)
         scores = self.model.predict(pairs)
 
         ranked = sorted(
