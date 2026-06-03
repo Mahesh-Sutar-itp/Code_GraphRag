@@ -138,7 +138,7 @@ def start_index(req: IndexRequest):
     ).start()
     return {"job_id": job_id, "status": "queued"}
 
-@app.post("/resolve_query", response_model=QueryResolutionResponse)
+@app.post("/resolve-query", response_model=QueryResolutionResponse)
 def resolve_user_query(request: QueryResolutionRequest):
     if not request.user_id:
         return QueryResolutionResponse(status="Bad Request", code="400", msg="Not Found user-id", node_ids=[])
