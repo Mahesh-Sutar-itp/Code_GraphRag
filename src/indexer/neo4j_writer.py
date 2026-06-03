@@ -12,6 +12,8 @@ import os
 from dotenv import load_dotenv
 from neo4j import GraphDatabase, Driver
 
+# Fixed id for the singleton metadata node — the graph holds one repo at a time
+METADATA_ID = "singleton"
 
 # Load .env config at module import time
 load_dotenv()
@@ -48,6 +50,161 @@ def verify_connection() -> bool:
         driver.close()
 
 
+def read_index_metadata() -> tuple[str, str] | None:
+    """
+    Read the (repo_url, commit_sha) of the repo currently in the graph.
+
+    Returns None if nothing has been indexed yet (fresh/empty graph). This is
+    the signal the orchestrator uses to decide whether a repo can be skipped.
+
+    Stored in Neo4j (not a file) so it stays consistent with the graph — if
+    the graph is wiped, this metadata vanishes too, preventing false skips.
+    """
+    driver = get_driver()
+    try:
+        with driver.session() as session:
+            result = session.run(
+                """
+                MATCH (m:IndexMetadata {id: $id})
+                RETURN m.repo_url AS url, m.commit_sha AS sha
+                """,
+                id=METADATA_ID,
+            )
+            record = result.single()
+            if record is None:
+                return None
+            return record["url"], record["sha"]
+    finally:
+        driver.close()
+
+
+def read_repo_info() -> dict | None:
+    """
+    Read full metadata of the currently-indexed repo, for the API's
+    /repos endpoint. Returns None if nothing is indexed.
+    """
+    driver = get_driver()
+    try:
+        with driver.session() as session:
+            result = session.run(
+                """
+                MATCH (m:IndexMetadata {id: $id})
+                RETURN m.repo_url AS url, m.commit_sha AS sha,
+                       m.name AS name,
+                       m.total_files AS total_files,
+                       m.total_lines AS total_lines,
+                       toString(m.indexed_at) AS indexed_at
+                """,
+                id=METADATA_ID,
+            )
+            record = result.single()
+            if record is None:
+                return None
+            return dict(record)
+    finally:
+        driver.close()
+
+
+def read_file_paths() -> list[str]:
+    """Return all stored :File paths (used to build the file tree)."""
+    driver = get_driver()
+    try:
+        with driver.session() as session:
+            result = session.run("MATCH (f:File) RETURN f.path AS path")
+            return [r["path"] for r in result]
+    finally:
+        driver.close()
+
+
+def read_file_content(path: str) -> str | None:
+    """Return the content of a single stored file, or None if not found."""
+    driver = get_driver()
+    try:
+        with driver.session() as session:
+            result = session.run(
+                "MATCH (f:File {path: $path}) RETURN f.content AS content",
+                path=path,
+            )
+            record = result.single()
+            return record["content"] if record else None
+    finally:
+        driver.close()
+
+
+def read_subgraph(node_ids: list[str]) -> dict:
+    """
+    Given node_ids, return their full node data + the CALLS edges between them.
+
+    Used by the /subgraph endpoint: the inference pipeline returns which
+    node_ids are relevant; the edges come from the precomputed graph here.
+    """
+    driver = get_driver()
+    try:
+        with driver.session() as session:
+            node_result = session.run(
+                """
+                MATCH (n)
+                WHERE n.node_id IN $node_ids
+                RETURN n.node_id AS node_id, n.name AS name, n.kind AS kind,
+                       n.file_path AS file_path, n.start_line AS start_line,
+                       n.end_line AS end_line, n.source_code AS source_code
+                """,
+                node_ids=node_ids,
+            )
+            nodes = [dict(r) for r in node_result]
+
+            edge_result = session.run(
+                """
+                MATCH (a)-[:CALLS]->(b)
+                WHERE a.node_id IN $node_ids AND b.node_id IN $node_ids
+                RETURN a.node_id AS source, b.node_id AS target
+                """,
+                node_ids=node_ids,
+            )
+            edges = [dict(r) for r in edge_result]
+    finally:
+        driver.close()
+
+    return {"nodes": nodes, "edges": edges}
+
+
+def write_index_metadata(
+    repo_url: str,
+    commit_sha: str,
+    name: str = "",
+    total_files: int = 0,
+    total_lines: int = 0,
+) -> None:
+    """
+    Store metadata for the repo just indexed: url, commit sha, display name,
+    and size stats. Uses MERGE on a fixed singleton id, so there's always
+    exactly one metadata node.
+
+    Call this AFTER build_graph, so wipe_graph doesn't delete it.
+    """
+    driver = get_driver()
+    try:
+        with driver.session() as session:
+            session.run(
+                """
+                MERGE (m:IndexMetadata {id: $id})
+                SET m.repo_url = $url,
+                    m.commit_sha = $sha,
+                    m.name = $name,
+                    m.total_files = $total_files,
+                    m.total_lines = $total_lines,
+                    m.indexed_at = datetime()
+                """,
+                id=METADATA_ID,
+                url=repo_url,
+                sha=commit_sha,
+                name=name,
+                total_files=total_files,
+                total_lines=total_lines,
+            )
+    finally:
+        driver.close()
+
 # ──────────────────────────────────────────────────────────────────────
 # Schema setup
 # ──────────────────────────────────────────────────────────────────────
@@ -82,8 +239,11 @@ def ensure_constraints(driver: Driver) -> None:
             CREATE CONSTRAINT class_node_id IF NOT EXISTS
             FOR (c:Class) REQUIRE c.node_id IS UNIQUE
         """)
+        session.run("""
+            CREATE CONSTRAINT file_path IF NOT EXISTS
+            FOR (file:File) REQUIRE file.path IS UNIQUE
+        """)
     print("  ✓ Uniqueness constraints in place")
-
 
 # ──────────────────────────────────────────────────────────────────────
 # Writes
@@ -163,6 +323,29 @@ def write_edges(driver: Driver, edges: list[tuple[str, str]]) -> int:
     return created
 
 
+def write_files(driver: Driver, files: list[dict]) -> None:
+    """
+    Insert one :File node per source file, holding its full content.
+
+    Lets the API serve a file tree and raw file contents without keeping the
+    cloned repo on disk — the graph becomes the single source of truth.
+    """
+    if not files:
+        print("  ✓ No files to store")
+        return
+
+    with driver.session() as session:
+        session.run(
+            """
+            UNWIND $files AS file
+            CREATE (f:File)
+            SET f = file
+            """,
+            files=files,
+        )
+
+    print(f"  ✓ Stored {len(files)} file nodes")
+
 # ──────────────────────────────────────────────────────────────────────
 # Sanity & inspection
 # ──────────────────────────────────────────────────────────────────────
@@ -173,10 +356,12 @@ def print_summary(driver: Driver) -> None:
         funcs = session.run("MATCH (f:Function) RETURN count(f) AS n").single()["n"]
         classes = session.run("MATCH (c:Class) RETURN count(c) AS n").single()["n"]
         calls = session.run("MATCH ()-[r:CALLS]->() RETURN count(r) AS n").single()["n"]
+        files = session.run("MATCH (f:File) RETURN count(f) AS n").single()["n"]
 
     print("\n  Graph contents:")
     print(f"    :Function nodes : {funcs}")
     print(f"    :Class nodes    : {classes}")
+    print(f"    :File nodes     : {files}")
     print(f"    :CALLS edges    : {calls}")
 
 
@@ -184,9 +369,13 @@ def print_summary(driver: Driver) -> None:
 # Top-level orchestration
 # ──────────────────────────────────────────────────────────────────────
 
-def build_graph(nodes: list[dict], edges: list[tuple[str, str]]) -> None:
+def build_graph(
+    nodes: list[dict],
+    edges: list[tuple[str, str]],
+    files: list[dict] | None = None,
+) -> None:
     """
-    End-to-end: wipe → constraints → nodes → edges → summary.
+    End-to-end: wipe → constraints → nodes → edges → files → summary.
 
     This is the one function the indexer pipeline calls.
     """
@@ -196,6 +385,8 @@ def build_graph(nodes: list[dict], edges: list[tuple[str, str]]) -> None:
         ensure_constraints(driver)
         write_nodes(driver, nodes)
         write_edges(driver, edges)
+        if files:
+            write_files(driver, files)
         print_summary(driver)
     finally:
         driver.close()
