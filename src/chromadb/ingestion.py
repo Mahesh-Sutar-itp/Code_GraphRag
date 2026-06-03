@@ -7,11 +7,8 @@ import os
 from sentence_transformers import SentenceTransformer
 from src.chromadb.BM25_Ingest import BM25Index
 from src.config.vectordb_config import embedding_model
-<<<<<<< Updated upstream
-=======
 from src.config.vectordb_config import bm25_path
 import logging
->>>>>>> Stashed changes
 
 load_dotenv()  # Load environment variables from .env file if present
 
@@ -82,8 +79,6 @@ def ingest_nodes_to_chroma(
         )
     }
 
-<<<<<<< Updated upstream
-=======
     def bm25_ingest(nodes: List[Dict], path: str = "bm25.pkl"):
         bm25 = BM25Index()
 
@@ -93,7 +88,6 @@ def ingest_nodes_to_chroma(
 
     bm25_ingest(nodes, path=bm25_path)
 
->>>>>>> Stashed changes
     for i in range(0, total_nodes, chroma_batch_size):
         batch = nodes[i:i + chroma_batch_size]
         
@@ -142,12 +136,7 @@ def ingest_nodes_to_chroma(
             batch_size=128,
             normalize_embeddings=True,
             show_progress_bar=False,
-<<<<<<< Updated upstream
-            convert_to_numpy=True,
-            pool=pool
-=======
             device='cpu'
->>>>>>> Stashed changes
         )
 
         # Insert or update the batch in ChromaDB
