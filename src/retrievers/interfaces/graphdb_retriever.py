@@ -7,7 +7,7 @@ class IRelationshipExtractor(ABC):
     """ Interface for extracting the source code and related nodes to target node """
 
     @abstractmethod
-    def get_node_data(self, seed_ids: str) -> GraphNode | None:
+    def get_node_data(self, node_id: str) -> GraphNode | None:
         """
 
         """
