@@ -5,7 +5,7 @@ from sentence_transformers import SentenceTransformer
 
 chroma_path: str="./data/chroma_db"
 collection_name: str="codegraph_semantic"
-embedding_model: str = "unsloth/embeddinggemma-300m"
+embedding_model: str = "google/embeddinggemma-300m"
 bm25_path: str = "./data/bm25.pkl"
 
 _chroma_client: ClientAPI | None = None

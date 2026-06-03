@@ -7,7 +7,11 @@ import os
 from sentence_transformers import SentenceTransformer
 from src.chromadb.BM25_Ingest import BM25Index
 from src.config.vectordb_config import embedding_model
+<<<<<<< Updated upstream
+=======
 from src.config.vectordb_config import bm25_path
+import logging
+>>>>>>> Stashed changes
 
 load_dotenv()  # Load environment variables from .env file if present
 
@@ -65,7 +69,7 @@ def ingest_nodes_to_chroma(
                                                            })
     
     total_nodes = len(nodes)
-    print(f"Starting ingestion of {total_nodes} nodes into collection '{collection_name}'...")
+    logging.info(f"Starting ingestion of {total_nodes} nodes into collection '{collection_name}'...")
 
 
     existing = collection.get(include=["metadatas"])
@@ -78,15 +82,18 @@ def ingest_nodes_to_chroma(
         )
     }
 
+<<<<<<< Updated upstream
+=======
     def bm25_ingest(nodes: List[Dict], path: str = "bm25.pkl"):
         bm25 = BM25Index()
 
         bm25.build(nodes)
 
-        bm25.save(nodes)
+        bm25.save(path)
 
     bm25_ingest(nodes, path=bm25_path)
 
+>>>>>>> Stashed changes
     for i in range(0, total_nodes, chroma_batch_size):
         batch = nodes[i:i + chroma_batch_size]
         
@@ -120,7 +127,7 @@ def ingest_nodes_to_chroma(
         for id_, doc, meta in zip( ids, documents, metadatas):
             existing_hash = existing_hashes.get(id_)
 
-            if existing_hash == meta["content_hash"]:
+            if existing_hash == meta.get("content_hash"):
                 continue
 
             filtered_ids.append(id_)
@@ -135,7 +142,12 @@ def ingest_nodes_to_chroma(
             batch_size=128,
             normalize_embeddings=True,
             show_progress_bar=False,
-            device=['cpu','cpu','cpu','cpu']
+<<<<<<< Updated upstream
+            convert_to_numpy=True,
+            pool=pool
+=======
+            device='cpu'
+>>>>>>> Stashed changes
         )
 
         # Insert or update the batch in ChromaDB
@@ -146,7 +158,7 @@ def ingest_nodes_to_chroma(
             embeddings=embeddings.tolist()
         )
     
-        print(f"Processed batch {i // chroma_batch_size + 1} ({min(i + chroma_batch_size, total_nodes)}/{total_nodes})")
+        logging.info(f"Processed batch {i // chroma_batch_size + 1} ({min(i + chroma_batch_size, total_nodes)}/{total_nodes})")
         
     current_ids = {node.get("chroma_id", "unknown_id") for node in nodes}
 
@@ -160,7 +172,7 @@ def ingest_nodes_to_chroma(
 
     if stale_ids:
         collection.delete(ids=stale_ids)
-    print("Ingestion complete! Full source-code semantic index is ready.")
+    logging.info("Ingestion complete! Full source-code semantic index is ready.")
 
 
 # ==========================================
