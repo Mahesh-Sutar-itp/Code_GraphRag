@@ -1,6 +1,10 @@
-from sentence_transformers import CrossEncoder
+import logging
 
-class CodeReranker:
+from src.retrievers.interfaces.vectordb_retriever import ICodeReranker
+from sentence_transformers import CrossEncoder
+from typing import List
+
+class CodeReranker(ICodeReranker):
 
     def __init__(self):
 
@@ -9,7 +13,7 @@ class CodeReranker:
             trust_remote_code=True
         )
 
-    def rerank(self, query, candidates, top_k=10):
+    def rerank(self, query, candidates, top_k=10) -> List[dict]:
 
         pairs = []
 
@@ -24,5 +28,5 @@ class CodeReranker:
             key=lambda x: x[1],
             reverse=True
         )
-
+        logging.info(f"Reranking of candidates based on relevance to query: '{query}' done")
         return [item[0] for item in ranked[:top_k]]

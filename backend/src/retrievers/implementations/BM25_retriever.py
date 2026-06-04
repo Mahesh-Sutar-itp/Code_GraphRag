@@ -1,10 +1,11 @@
 import logging
 from typing import Any, Dict, List
+from src.retrievers.interfaces.vectordb_retriever import IBM25Retriever
 from src.chromadb.BM25_Ingest import BM25Index
 from src.config.vectordb_config import bm25_path
 
 
-class BM25Retriever:
+class BM25Retriever(IBM25Retriever):
 
     def __init__(self):
         self.index: BM25Index = BM25Index.load(bm25_path)

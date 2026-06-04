@@ -1,12 +1,9 @@
-import chromadb
 # from opentelemetry import trace
-
+import logging
 from src.agent.models import GraphEdge, GraphNode
 from src.retrievers.implementations.graphdb_retriever import RelationshipExtractor
-from src.retrievers.implementations.vectordb_retriever import SemanticSearch
 from src.retrievers.interfaces.graphdb_retriever import IRelationshipExtractor
-from src.retrievers.interfaces.vectordb_retriever import ISemanticSearch
-from src.retrievers.implementations.vectordb_retriever import HybridRetriever
+from src.retrievers.implementations.hybrid_retriever import HybridRetriever
 
 class RetrievalPipeline:
     def __init__(self):
@@ -30,7 +27,7 @@ class RetrievalPipeline:
         # Phase 2: Tiered Graph Fetch (Neo4j)
         # Fetch the related nodes and edges for the seed IDs.
         graph_nodes, graph_edges, seeds = self.relationship_extractor.get_related_nodes(seed_ids, num_hops=1)
-
+        logging.info(f"Graph structure retrieval for query: '{user_query}' completed. Nodes retrieved: {len(graph_nodes)}, Edges retrieved: {len(graph_edges)}")
         return graph_nodes, graph_edges
         
     
@@ -45,5 +42,5 @@ class RetrievalPipeline:
         # Phase 2: Tiered Graph Fetch (Neo4j)
         # Path A: get the raw source code for the asked nodes.
         graph_node: GraphNode | None = self.relationship_extractor.get_node_data(seed_id)
-        
+        logging.info(f"Graph structure retrieval for node: '{seed_id}' completed. Node retrieved: {graph_node is not None}")
         return graph_node

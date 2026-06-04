@@ -1,3 +1,5 @@
+import logging
+
 from src.config.graphdb_config import get_neo4j_driver
 from src.retrievers.interfaces.graphdb_retriever import IRelationshipExtractor
 from src.agent.models import GraphNode, GraphEdge
@@ -40,7 +42,7 @@ class RelationshipExtractor(IRelationshipExtractor):
             result = session.run(query, node_id=node_id)
 
             record = result.single()
-
+            logging.info(f"Retrieved node data for node_id: '{node_id}' from Neo4j")
             if record is None:
                 return None
             else:
@@ -117,19 +119,3 @@ class RelationshipExtractor(IRelationshipExtractor):
                     )
                 
         return list(nodes.values()), edges, seed_ids
-
-    def _format_path(self, path_nodes: list, path_rels: list) -> str:
-        """Helper method to dynamically stitch the N-hop path together."""
-        path_str_parts = []
-        
-        # Loop through the relationships to interleave nodes and relations
-        for i in range(len(path_rels)):
-            path_str_parts.append(f"[Node: {path_nodes[i]}]")
-            # The forward arrow is now 100% accurate because the Cypher query was strictly directional
-            path_str_parts.append(f" -> [{path_rels[i]}] -> ")
-            
-        # Add the final trailing node in the path sequence
-        path_str_parts.append(f"[Node: {path_nodes[-1]}]")
-        
-        formatted_path = "".join(path_str_parts)
-        return f"- {formatted_path}\n"

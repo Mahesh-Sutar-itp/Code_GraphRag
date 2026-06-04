@@ -8,3 +8,27 @@ class ISemanticSearch(ABC):
         """
         """
         pass
+
+class IHybridRetriever(ABC):
+
+    @abstractmethod
+    def get_seed_ids( self, query: str) -> List[str]:
+        """
+        """
+        pass
+
+class ICodeReranker(ABC):
+
+    @abstractmethod
+    def rerank(self, query, candidates, top_k=10) -> List[dict]:
+        """
+        """
+        pass
+
+class IBM25Retriever(ABC):
+
+    @abstractmethod
+    def search(self, query: str, top_k: int = 20) -> List[Dict[str, Any]]:
+        """
+        """
+        pass
