@@ -16,8 +16,7 @@ class CodeReranker:
         for c in candidates:
 
             pairs.append((query, c.get("document") or ""))
-        print("Printing Pairs for Reranking:")
-        print(pairs)
+
         scores = self.model.predict(pairs)
 
         ranked = sorted(

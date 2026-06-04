@@ -42,6 +42,5 @@ class BM25Retriever:
                     "metadata": doc["metadata"]
                 }
             )
-            print(f"BM25 Candidate: {doc.get('document', '')} with score {score} and results {results}")
 
         return results

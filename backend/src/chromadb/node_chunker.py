@@ -28,7 +28,7 @@ def chunk_ast_nodes(nodes: List[Dict], max_tokens: int = 512) -> List[Dict]:
 
     def should_split(text: str, max_tokens: int) -> bool:
         # Fast heuristic
-        if len(text) < 1500:
+        if len(text) < 1000:
             return False
 
         # Accurate check only for larger nodes
@@ -39,7 +39,7 @@ def chunk_ast_nodes(nodes: List[Dict], max_tokens: int = 512) -> List[Dict]:
             )["input_ids"]
         )
 
-        return token_count > max_tokens
+        return token_count >= max_tokens
 
     splitter = RecursiveCharacterTextSplitter.from_huggingface_tokenizer(
         tokenizer,
@@ -64,7 +64,7 @@ def chunk_ast_nodes(nodes: List[Dict], max_tokens: int = 512) -> List[Dict]:
         
         # 2. Check if the WHOLE thing fits in one chunk to save processing
         full_text = header + source_code
-        if should_split(full_text, max_tokens):
+        if not should_split(full_text, max_tokens):
             # It fits! No need to split the code.
             chunk_record = {
                 "chroma_id": generate_safe_chroma_id(node_id, 0),
@@ -102,7 +102,7 @@ def chunk_ast_nodes(nodes: List[Dict], max_tokens: int = 512) -> List[Dict]:
                     "name": node.get("name", ""),
                     "kind": node.get("kind", "unknown"),
                     "docstring": node.get("docstring", ""),
-                    "content_hash": compute_hash(full_text),
+                    "content_hash": compute_hash(chunk_document),
                     "is_chunked": True,
                     "chunk_index": i,
                     "total_chunks": len(code_chunks),

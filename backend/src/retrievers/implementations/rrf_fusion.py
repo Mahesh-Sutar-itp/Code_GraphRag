@@ -1,4 +1,4 @@
-def rrf_fusion( rankings, k=30):
+def rrf_fusion( rankings, k=10):
 
     scores = {}
 

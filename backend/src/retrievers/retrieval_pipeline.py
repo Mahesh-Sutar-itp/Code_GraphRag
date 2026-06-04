@@ -29,7 +29,7 @@ class RetrievalPipeline:
 
         # Phase 2: Tiered Graph Fetch (Neo4j)
         # Fetch the related nodes and edges for the seed IDs.
-        graph_nodes, graph_edges, seeds = self.relationship_extractor.get_related_nodes(seed_ids, num_hops=2)
+        graph_nodes, graph_edges, seeds = self.relationship_extractor.get_related_nodes(seed_ids, num_hops=1)
 
         return graph_nodes, graph_edges
         

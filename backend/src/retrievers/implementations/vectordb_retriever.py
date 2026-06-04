@@ -41,7 +41,7 @@ class SemanticSearch(ISemanticSearch):
         metadatas = results["metadatas"][0] if results["metadatas"] else []
         distances = results["distances"][0] if results["distances"] else []
         documents = results["documents"][0] if results["documents"] else []
-        print(documents)
+        
         for meta, distance, doc in zip( metadatas, distances, documents):
             
             if meta is None:
@@ -78,7 +78,7 @@ class HybridRetriever:
         dense_results = (self.dense.get_seeds(query))
         bm25_results = (self.bm25.search(query,top_k=20))
         fused = rrf_fusion([ dense_results, bm25_results])
-        reranked = (self.reranker.rerank( query, fused, top_k=10))
+        reranked = (self.reranker.rerank( query, fused, top_k=5))
 
         seen = set()
 

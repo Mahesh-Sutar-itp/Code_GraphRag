@@ -6,25 +6,6 @@ class RelationshipExtractor(IRelationshipExtractor):
     def __init__(self):
         self.driver = get_neo4j_driver()
 
-    # def get_raw_source_code(self, seed_ids: list[str]) -> str:
-    #     """
-    #     Tier 1 Context: Traverses the sealed door to get the heavy payload.
-    #     """
-    #     # query = """
-    #     # MATCH (node)
-    #     # WHERE node.node_id IN $seed_ids
-    #     # MATCH (node)-[:HAS_SOURCE_CODE]->(document:Document)
-    #     # RETURN node.name AS name, document.source_code AS code
-    #     # """
-
-    #     query=""" MATCH (node) WHERE node.node_id IN $seed_ids RETURN node.name as name, node.source_code as code """
-    #     with self.driver.session() as session:
-    #         results = session.run(query, seed_ids=seed_ids)
-            
-    #         formatted_code = "### Target Nodes' Source Code\n"
-    #         for record in results:
-    #             formatted_code += f"**{record['name']}**\n```\n{record['code']}\n```\n"
-    #         return formatted_code
 
     def get_node_data(self, node_id: str) -> GraphNode | None:
         """

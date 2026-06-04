@@ -3,7 +3,7 @@ import logging
 from google.adk.agents import LlmAgent
 from google.genai.types import Content, Part
 
-from src.agent.llm_models import get_azure_openai_model
+from src.agent.llm_models import get_azure_openai_model, get_gemini_model
 from src.agent.models import PlannerInput, PlannerOutput, ResolverInput
 import src.agent.instruction_dump as instructions
 
@@ -33,7 +33,8 @@ import src.agent.instruction_dump as instructions
 
 def create_planner_agent():
     try:
-        planner_llm_model=get_azure_openai_model("openai/gpt-4o")
+        # planner_llm_model=get_azure_openai_model("openai/gpt-4.1-nano")
+        planner_llm_model=get_gemini_model("gemini-3.1-flash-lite")
         return LlmAgent(
             name='node_relevance_ranker',
             model=planner_llm_model,
@@ -50,7 +51,8 @@ def create_planner_agent():
 
 def create_resolver_agent():
     try:
-        resolver_llm_model=get_azure_openai_model("openai/gpt-4.1")
+        # resolver_llm_model=get_azure_openai_model("openai/gpt-5-nano")
+        resolver_llm_model=get_gemini_model("gemini-3.1-flash-lite")
         return LlmAgent(
             name='user_query_resolver',
             model=resolver_llm_model,

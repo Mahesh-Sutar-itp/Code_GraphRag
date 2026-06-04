@@ -6,8 +6,7 @@ from dotenv import load_dotenv
 import os
 from sentence_transformers import SentenceTransformer
 from src.chromadb.BM25_Ingest import BM25Index
-from src.config.vectordb_config import embedding_model
-from src.config.vectordb_config import bm25_path
+from src.config.vectordb_config import embedding_model, bm25_path, chroma_path, collection_name
 import logging
 
 load_dotenv()  # Load environment variables from .env file if present
@@ -43,8 +42,8 @@ def get_existing_hashes(collection, ids):
 
 def ingest_nodes_to_chroma(
     nodes: List[Dict], 
-    collection_name: str = os.getenv("CHROMA_COLLECTION_NAME", "codegraph_semantic"),
-    persist_directory: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_data"),
+    collection_name: str = collection_name,
+    persist_directory: str = chroma_path,
     chroma_batch_size: int = 1000
 ):
     """
@@ -57,6 +56,7 @@ def ingest_nodes_to_chroma(
         chroma_batch_size: Number of documents to insert at once.
     """
     print(f"Initializing ChromaDB client at {persist_directory}...")
+    logging.info(f"Initializing ChromaDB client at {persist_directory}...")
     client = chromadb.PersistentClient(path=persist_directory)
     
     # We use the embedding model ("google/embeddinggemma-300m") under the hood.
@@ -66,6 +66,7 @@ def ingest_nodes_to_chroma(
                                                            })
     
     total_nodes = len(nodes)
+    print(f"Starting ingestion of {total_nodes} nodes into collection '{collection_name}'...")
     logging.info(f"Starting ingestion of {total_nodes} nodes into collection '{collection_name}'...")
 
 
@@ -146,7 +147,7 @@ def ingest_nodes_to_chroma(
             metadatas=filtered_meta,
             embeddings=embeddings.tolist()
         )
-    
+        print(f"Processed batch {i // chroma_batch_size + 1} ({min(i + chroma_batch_size, total_nodes)}/{total_nodes})")
         logging.info(f"Processed batch {i // chroma_batch_size + 1} ({min(i + chroma_batch_size, total_nodes)}/{total_nodes})")
         
     current_ids = {node.get("chroma_id", "unknown_id") for node in nodes}
