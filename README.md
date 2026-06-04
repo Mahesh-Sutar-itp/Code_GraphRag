@@ -90,6 +90,7 @@ For more depth, read the topic docs:
 - [Query Resolution Flow](docs/query-resolution-flow.md)
 - [API Reference](docs/api-reference.md)
 - [Data Stores](docs/data-stores.md)
+- [Operational Hardening](docs/operational-hardening.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
 There are also older backend notes in [backend/docs](backend/docs).
@@ -103,4 +104,3 @@ There are also older backend notes in [backend/docs](backend/docs).
 ## Current Scope
 
 The project is currently focused on Python repositories. It indexes one repository at a time in Neo4j, stores repo metadata as a singleton node, and uses in-memory job status for indexing progress. Job status is reset when the backend restarts.
-

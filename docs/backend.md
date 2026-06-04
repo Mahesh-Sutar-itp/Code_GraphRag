@@ -133,4 +133,4 @@ GITHUB_TOKEN=your_github_models_or_azure_openai_token
 - `index_jobs` is an in-memory dictionary, so job data is lost on restart.
 - `build_graph()` wipes existing Neo4j data before writing a new graph.
 - `NEO4J_PASSWORD` is required at import time for Neo4j writer/config code.
-
+- Exception handling, security, performance, observability, and structured logging guidance lives in [Operational Hardening](operational-hardening.md).

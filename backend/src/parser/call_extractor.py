@@ -413,7 +413,8 @@ def extract_all_edges(
             )
             all_edges.extend(edges)
         except Exception as e:
-            print(f"  ! Edge extraction failed for {fp}: {e}")
+            import logging
+            logging.warning(f"Edge extraction failed for {fp}: {e}")
 
     return list(set(all_edges))
 
@@ -421,26 +422,28 @@ def extract_all_edges(
 if __name__ == "__main__":
     # Smoke test: extract edges from the test repo
     import sys
+    import logging
     from src.parser.file_discovery import find_python_files
     from src.parser.ast_parser import parse_files
 
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
     repo = sys.argv[1] if len(sys.argv) > 1 else "test_repos/ai-engineering-journey/projects/vector-db-comparison"
 
-    print(f"Repo: {repo}\n")
+    logging.info(f"Repo: {repo}")
     files = find_python_files(repo)
-    print(f"Found {len(files)} .py files\n")
+    logging.info(f"Found {len(files)} .py files")
 
-    print("Phase 1: extracting definitions...")
+    logging.info("Phase 1: extracting definitions...")
     nodes = parse_files(files, repo)
-    print(f"  → {len(nodes)} nodes\n")
+    logging.info(f"  → {len(nodes)} nodes")
 
-    print("Phase 2: extracting call edges...")
+    logging.info("Phase 2: extracting call edges...")
     edges = extract_all_edges(files, repo, nodes)
-    print(f"  → {len(edges)} edges (deduplicated)\n")
+    logging.info(f"  → {len(edges)} edges (deduplicated)")
 
     # Show sample edges
-    print("Sample edges (first 20):")
+    logging.info("Sample edges (first 20):")
     for caller, callee in edges[:20]:
-        print(f"  {caller}")
-        print(f"    → {callee}")
-        print()
+        logging.info(f"  {caller}")
+        logging.info(f"    → {callee}")

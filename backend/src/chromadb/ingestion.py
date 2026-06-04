@@ -52,8 +52,7 @@ def ingest_nodes_to_chroma(
         persist_directory: Local path to save the vector database.
         chroma_batch_size: Number of documents to insert at once.
     """
-    print(f"Initializing ChromaDB client at {persist_directory}...")
-    logging.info(f"Initializing ChromaDB client at {persist_directory}...")
+    logging.info(f"Initializing ChromaDB client at {persist_directory}")
     client = chromadb.PersistentClient(path=persist_directory)
     
     # We use the embedding model ("google/embeddinggemma-300m") under the hood.
@@ -63,8 +62,7 @@ def ingest_nodes_to_chroma(
                                                            })
     
     total_nodes = len(nodes)
-    print(f"Starting ingestion of {total_nodes} nodes into collection '{collection_name}'...")
-    logging.info(f"Starting ingestion of {total_nodes} nodes into collection '{collection_name}'...")
+    logging.info(f"Starting ingestion of {total_nodes} nodes into collection '{collection_name}'")
 
 
     existing = collection.get(include=["metadatas"])

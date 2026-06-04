@@ -11,6 +11,7 @@ Examples:
 
 import os
 import sys
+import logging
 from pathlib import Path
 
 from src.parser.file_discovery import find_python_files, compute_repo_stats, collect_files
@@ -30,7 +31,13 @@ from src.parser.repo_fetcher import (
 )
 from src.chromadb.node_chunker import chunk_ast_nodes
 from src.chromadb.ingestion import ingest_nodes_to_chroma
+from src.exceptions import (
+    StorageUnavailableError,
+    RepoCloneError,
+    IndexingError,
+)
 
+logger = logging.getLogger(__name__)
 
 def index_repository(source: str, on_progress=None) -> None:
     """
@@ -43,24 +50,33 @@ def index_repository(source: str, on_progress=None) -> None:
 
     `on_progress(stage, progress)` is an optional callback used by the API to
     stream progress; stage is one of cloning/parsing/edges/writing/done.
+    
+    Raises:
+        StorageUnavailableError: If Neo4j connection fails
+        RepoCloneError: If repository resolution fails
+        IndexingError: If any indexing step fails
     """
     def _report(stage: str, progress: int) -> None:
         if on_progress:
             on_progress(stage, progress)
-
-    print(f"\n{'═' * 70}")
-    print(f"  Indexing: {source}")
-    print(f"{'═' * 70}\n")
+    
+    def _log_stage(stage_name: str, message: str = ""):
+        logger.info(
+            f"Indexing stage: {stage_name}",
+            extra={"extra_fields": {"stage": stage_name, "message": message, "repo": source}}
+        )
 
     # Step 0: verify Neo4j is alive before doing any work
-    print("Step 0/7: Verifying Neo4j connection...")
+    _log_stage("neo4j_verify", "Verifying Neo4j connection")
     if not verify_connection():
-        print("  ✗ Cannot reach Neo4j. Is it running?")
-        sys.exit(1)
-    print("  ✓ Connected\n")
+        logger.error(
+            "Neo4j connection failed",
+            extra={"extra_fields": {"stage": "neo4j_verify", "repo": source}}
+        )
+        raise StorageUnavailableError("Cannot reach Neo4j. Is it running?")
 
     # Step 1: SHA cache check (URLs only) — skip if repo is unchanged
-    print("Step 1/7: Checking for changes...")
+    _log_stage("cache_check", "Checking for changes")
     remote_sha = None
     if is_url(source):
         remote_sha = get_remote_sha(source)
@@ -69,70 +85,138 @@ def index_repository(source: str, on_progress=None) -> None:
             if last is not None:
                 last_url, last_sha = last
                 if last_url == source and last_sha == remote_sha:
-                    print(f"  ✓ Repo unchanged (SHA {remote_sha[:8]}) — skipping.\n")
-                    print("Already indexed. Open http://localhost:7474 to explore.")
+                    logger.info(
+                        "Repo unchanged, skipping index",
+                        extra={"extra_fields": {"stage": "cache_check", "repo": source, "sha": remote_sha[:8]}}
+                    )
                     _report("done", 100)
                     return
-            print(f"  ✓ New/changed repo (SHA {remote_sha[:8]}) — will index.\n")
+            logger.info(
+                "New or changed repo, proceeding with index",
+                extra={"extra_fields": {"stage": "cache_check", "repo": source, "sha": remote_sha[:8]}}
+            )
         else:
-            print("  ! Could not fetch remote SHA — proceeding without cache.\n")
+            logger.warning(
+                "Could not fetch remote SHA, proceeding without cache",
+                extra={"extra_fields": {"stage": "cache_check", "repo": source}}
+            )
     else:
-        print("  ✓ Local path — skipping cache check.\n")
+        logger.debug("Local path — skipping cache check", extra={"extra_fields": {"repo": source}})
 
     # Step 2: resolve the source (clone if URL, passthrough if local)
-    print("Step 2/7: Resolving source...")
+    _log_stage("cloning", "Resolving source")
     _report("cloning", 20)
     try:
         repo_path, is_temp = resolve_repo_source(source)
-    except (FileNotFoundError, RuntimeError) as e:
-        print(f"  ✗ {e}")
-        sys.exit(1)
-    print(f"  ✓ Source ready at {repo_path}\n")
+    except (FileNotFoundError, RuntimeError, TimeoutError) as e:
+        logger.error(
+            "Repo resolution failed",
+            extra={"extra_fields": {
+                "stage": "cloning",
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "repo": source
+            }}
+        )
+        raise RepoCloneError(f"Failed to clone or resolve repository: {e}") from e
 
     try:
         # Step 3: discover .py files
-        print("Step 3/7: Discovering Python files...")
+        _log_stage("discovering", "Discovering Python files")
         files = find_python_files(repo_path)
-        print(f"  ✓ Found {len(files)} files")
+        logger.info(
+            "Python files discovered",
+            extra={"extra_fields": {
+                "stage": "discovering",
+                "file_count": len(files),
+                "repo": source
+            }}
+        )
         if not files:
-            print("  Nothing to index.")
+            logger.info(
+                "No Python files found in repository",
+                extra={"extra_fields": {"stage": "discovering", "repo": source}}
+            )
             _report("done", 100)
             return
 
         # Repo size metrics
         stats = compute_repo_stats(files)
-        print(
-            f"  ✓ {stats['total_lines']:,} total lines "
-            f"({stats['code_lines']:,} code lines)\n"
+        logger.info(
+            "Repo stats computed",
+            extra={"extra_fields": {
+                "stage": "discovering",
+                "total_lines": stats['total_lines'],
+                "code_lines": stats['code_lines'],
+                "repo": source
+            }}
         )
 
         # Step 4: extract definitions
-        print("Step 4/7: Extracting definitions...")
+        _log_stage("parsing", "Extracting definitions")
         _report("parsing", 45)
         nodes = parse_files(files, repo_path)
-        print(f"  ✓ Extracted {len(nodes)} definitions\n")
+        logger.info(
+            "Definitions extracted",
+            extra={"extra_fields": {
+                "stage": "parsing",
+                "node_count": len(nodes),
+                "repo": source
+            }}
+        )
 
         # Step 5: extract call edges + C1 redirect
-        print("Step 5/7: Extracting call edges...")
+        _log_stage("edges", "Extracting call edges")
         _report("edges", 65)
         edges = extract_all_edges(files, repo_path, nodes)
         canonical = build_canonical_map(nodes)
         if canonical:
             edges = redirect_edges(edges, canonical)
-            print(f"  ✓ Redirected edges for {len(canonical)} disambiguated function(s)")
-        print(f"  ✓ Extracted {len(edges)} edges\n")
+            logger.info(
+                "Edges redirected for disambiguated functions",
+                extra={"extra_fields": {
+                    "stage": "edges",
+                    "canonical_count": len(canonical),
+                    "repo": source
+                }}
+            )
+        logger.info(
+            "Call edges extracted",
+            extra={"extra_fields": {
+                "stage": "edges",
+                "edge_count": len(edges),
+                "repo": source
+            }}
+        )
 
-        # Step 6: ingest nodes into ChromaDB for semantic search (friend 2's step)
-        print("Step 6/7: Ingesting nodes into ChromaDB for semantic search...")
+        # Step 6: ingest nodes into ChromaDB for semantic search
+        _log_stage("chromadb", "Ingesting nodes into ChromaDB")
         chunked_nodes = chunk_ast_nodes(nodes, max_tokens=512)
         ingest_nodes_to_chroma(chunked_nodes)
-        print("  ✓ Ingested into ChromaDB\n")
+        logger.info(
+            "Nodes ingested into ChromaDB",
+            extra={"extra_fields": {
+                "stage": "chromadb",
+                "chunk_count": len(chunked_nodes),
+                "repo": source
+            }}
+        )
 
         # Step 7: write to Neo4j
-        print("Step 7/7: Writing to Neo4j...")
+        _log_stage("writing", "Writing to Neo4j")
         _report("writing", 85)
         file_contents = collect_files(files, repo_path)
         build_graph(nodes, edges, files=file_contents)
+        logger.info(
+            "Graph written to Neo4j",
+            extra={"extra_fields": {
+                "stage": "writing",
+                "node_count": len(nodes),
+                "edge_count": len(edges),
+                "file_count": len(files),
+                "repo": source
+            }}
+        )
 
         # Record metadata so future runs can skip if unchanged (URLs only)
         if is_url(source) and remote_sha:
@@ -144,23 +228,44 @@ def index_repository(source: str, on_progress=None) -> None:
                 total_files=stats["total_files"],
                 total_lines=stats["total_lines"],
             )
-            print(f"  ✓ Recorded index metadata (SHA {remote_sha[:8]})")
-        print()
+            logger.info(
+                "Index metadata recorded",
+                extra={"extra_fields": {
+                    "stage": "metadata",
+                    "repo": source,
+                    "sha": remote_sha[:8]
+                }}
+            )
 
-        print(f"{'═' * 70}")
-        print("  ✓ Indexing complete")
-        print(f"{'═' * 70}\n")
-        print("Open http://localhost:7474 to explore the graph.")
-        print("Try this Cypher query to see everything:")
-        print("    MATCH (n) RETURN n")
+        logger.info(
+            "Indexing complete",
+            extra={"extra_fields": {
+                "stage": "done",
+                "repo": source,
+                "total_files": stats.get("total_files", 0),
+                "total_lines": stats.get("total_lines", 0)
+            }}
+        )
         _report("done", 100)
 
     finally:
         # Always clean up the temp clone, even if indexing failed
         if is_temp:
-            print(f"\n  Cleaning up temporary clone...")
-            _safe_rmtree(repo_path)
-            print(f"  ✓ Temp directory removed")
+            try:
+                _safe_rmtree(repo_path)
+                logger.debug(
+                    "Temp directory cleaned up",
+                    extra={"extra_fields": {"stage": "cleanup", "repo": source}}
+                )
+            except Exception as cleanup_err:
+                logger.warning(
+                    "Temp directory cleanup failed",
+                    extra={"extra_fields": {
+                        "stage": "cleanup",
+                        "error": str(cleanup_err),
+                        "repo": source
+                    }}
+                )
 
 
 if __name__ == "__main__":
