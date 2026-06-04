@@ -32,8 +32,6 @@ NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=your_neo4j_password
 GITHUB_TOKEN=your_github_models_or_azure_openai_token
-CHROMA_PERSIST_DIR=./data/chroma_db
-CHROMA_COLLECTION_NAME=codegraph_semantic
 ```
 
 The backend uses `GITHUB_TOKEN` when creating LiteLLM models for `openai/gpt-4o` and `openai/gpt-4.1` through `https://models.inference.ai.azure.com`.
@@ -60,8 +58,8 @@ ChromaDB is created on disk by the backend.
 
 Use this setting:
 
-```env
-CHROMA_PERSIST_DIR=./data/chroma_db
+```vectordb_config.py
+chroma_path: str="./data/chroma_db"
 ```
 
 This matters because retrieval reads from `./data/chroma_db` in `backend/src/config/vectordb_config.py`.

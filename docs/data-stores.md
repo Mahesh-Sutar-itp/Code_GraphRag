@@ -147,11 +147,11 @@ BM25 helps when the user query contains exact terms, function names, filenames, 
 
 Make sure Chroma ingestion and retrieval use the same folder.
 
-Recommended backend `.env`:
+Recommended backend `vectordb_config.py`:
 
-```env
-CHROMA_PERSIST_DIR=./data/chroma_db
-CHROMA_COLLECTION_NAME=codegraph_semantic
+```vectordb_config.py
+chroma_path: str="./data/chroma_db"
+collection_name: str="codegraph_semantic"
 ```
 
 The retrieval config currently reads from:

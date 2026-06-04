@@ -39,11 +39,7 @@ NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=your_neo4j_password
 GITHUB_TOKEN=your_github_models_or_azure_openai_token
-CHROMA_PERSIST_DIR=./data/chroma_db
-CHROMA_COLLECTION_NAME=codegraph_semantic
 ```
-
-Important: keep Chroma ingestion and retrieval on the same folder. The retrieval config currently uses `./data/chroma_db`, so `CHROMA_PERSIST_DIR=./data/chroma_db` is the safest setting.
 
 ### 3. Run Backend
 

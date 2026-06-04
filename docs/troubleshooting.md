@@ -80,11 +80,11 @@ Then restart the frontend dev server.
 
 Most likely ChromaDB ingestion and retrieval are using different folders.
 
-Use this in `backend/.env`:
+Use this in `backend/src/config/vectordb_config.py`:
 
-```env
-CHROMA_PERSIST_DIR=./data/chroma_db
-CHROMA_COLLECTION_NAME=codegraph_semantic
+```vectordb_config.py
+chroma_path: str="./data/chroma_db"
+collection_name: str="codegraph_semantic"
 ```
 
 Then re-index the repository.
