@@ -1,10 +1,16 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 class ISemanticSearch(ABC):
 
     @abstractmethod
-    def get_seeds(self, query: str) -> List[Dict[str, Any]]:
+    def get_seeds(
+        self, 
+        query: str, 
+        top_k: int = 60, 
+        where_filter: Optional[Dict[str, Any]] = None, 
+        original_query: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
         """
         pass
@@ -28,7 +34,7 @@ class ICodeReranker(ABC):
 class IBM25Retriever(ABC):
 
     @abstractmethod
-    def search(self, query: str, top_k: int = 20) -> List[Dict[str, Any]]:
+    def search(self, query: str, top_k: int = 20, where_filter: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         """
         pass

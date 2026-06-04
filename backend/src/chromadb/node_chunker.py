@@ -53,9 +53,14 @@ def chunk_ast_nodes(nodes: List[Dict], max_tokens: int = 512) -> List[Dict]:
     for node in nodes:
         node_id = node["node_id"]
         source_code = node.get("source_code", "")
+        file_path = node.get("file_path", "unknown_file")
         
+        # Extract just the file name (e.g., "calculator.py") for clean token mapping
+        file_name = file_path.split("/")[-1] if "/" in file_path else file_path.split("\\")[-1]
         # 1. Create the persistent header that goes on EVERY chunk
         header = (
+            f"File Path: {file_path}\n"
+            f"File Name: {file_name}\n"
             f"Type: {node.get('kind', 'unknown')}\n"
             f"Name: {node.get('name', 'unknown')}\n"
             f"Docstring: {node.get('docstring', '')}\n"
@@ -64,11 +69,13 @@ def chunk_ast_nodes(nodes: List[Dict], max_tokens: int = 512) -> List[Dict]:
         
         # 2. Check if the WHOLE thing fits in one chunk to save processing
         full_text = header + source_code
+
+        formatted_document = f"title: {file_name} | text: {full_text}"
         if not should_split(full_text, max_tokens):
             # It fits! No need to split the code.
             chunk_record = {
                 "chroma_id": generate_safe_chroma_id(node_id, 0),
-                "document": full_text,
+                "document": formatted_document,
                 "metadata": {
                     "node_id": node_id, 
                     "parent_node_id": node_id, #For future use if we want to link chunks together in Neo4j
@@ -91,10 +98,10 @@ def chunk_ast_nodes(nodes: List[Dict], max_tokens: int = 512) -> List[Dict]:
         for i, code_chunk in enumerate(code_chunks):
             # 4. Re-attach the header to this specific piece of code
             chunk_document = header + code_chunk
-            
+            formatted_chunk_document = f"title: {file_name} | text: {chunk_document}"
             chunk_record = {
                 "chroma_id": generate_safe_chroma_id(node_id, i),
-                "document": chunk_document, # Header + Code snippet
+                "document": formatted_chunk_document, # Header + Code snippet
                 "metadata": {
                     "node_id": node_id, 
                     "parent_node_id": node_id, #For future use if we want to link chunks together in Neo4j
