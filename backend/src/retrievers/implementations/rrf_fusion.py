@@ -1,3 +1,5 @@
+import logging
+
 def rrf_fusion( rankings, k=10):
 
     scores = {}
@@ -19,5 +21,5 @@ def rrf_fusion( rankings, k=10):
         key=lambda x: x[1],
         reverse=True
     )
-
+    logging.info(f"RRF fusion completed on {len(rankings)} rankings. Total unique documents scored: {len(scores)}")
     return [metadata_lookup[doc_id] for doc_id, _ in ranked]

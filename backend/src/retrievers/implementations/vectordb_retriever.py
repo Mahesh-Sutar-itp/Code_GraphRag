@@ -1,10 +1,7 @@
 from typing import Any, Dict, List
 from src.config.vectordb_config import get_collection, get_embedder
-from src.retrievers.implementations.BM25_retriever import BM25Retriever
 from src.retrievers.interfaces.vectordb_retriever import ISemanticSearch
-from src.retrievers.implementations.rrf_fusion import rrf_fusion
-from src.retrievers.implementations.code_reranker import CodeReranker
-
+import logging
 # Dense vector retriever using ChromaDB
 class SemanticSearch(ISemanticSearch):
     def __init__(self, top_k=20):
@@ -41,7 +38,7 @@ class SemanticSearch(ISemanticSearch):
         metadatas = results["metadatas"][0] if results["metadatas"] else []
         distances = results["distances"][0] if results["distances"] else []
         documents = results["documents"][0] if results["documents"] else []
-        
+
         for meta, distance, doc in zip( metadatas, distances, documents):
             
             if meta is None:
@@ -60,36 +57,5 @@ class SemanticSearch(ISemanticSearch):
                     "metadata": meta
                 }
             )
-
+        logging.info(f"Semantic search for query: '{query}' completed. Retrieved {len(output)} candidates.")
         return output
-        
-    
-
-class HybridRetriever:
-
-    def __init__(self):
-
-        self.dense = SemanticSearch(top_k=20)
-        self.bm25 = BM25Retriever()
-        self.reranker = CodeReranker()
-
-    def get_seed_ids( self, query: str) -> List[str]:
-
-        dense_results = (self.dense.get_seeds(query))
-        bm25_results = (self.bm25.search(query,top_k=20))
-        fused = rrf_fusion([ dense_results, bm25_results])
-        reranked = (self.reranker.rerank( query, fused, top_k=5))
-
-        seen = set()
-
-        seed_ids = []
-
-        for item in reranked:
-
-            node_id = item["metadata"]["node_id"]
-
-            if node_id not in seen:
-                seed_ids.append(node_id)
-                seen.add(node_id)
-
-        return seed_ids

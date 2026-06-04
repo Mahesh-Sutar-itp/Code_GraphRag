@@ -6,15 +6,12 @@ from dotenv import load_dotenv
 import os
 from sentence_transformers import SentenceTransformer
 from src.chromadb.BM25_Ingest import BM25Index
-from src.config.vectordb_config import embedding_model, bm25_path, chroma_path, collection_name
+from src.config.vectordb_config import bm25_path, chroma_path, collection_name, get_embedder, get_chroma_client, get_collection
 import logging
 
 load_dotenv()  # Load environment variables from .env file if present
 
-embed_model: SentenceTransformer = SentenceTransformer(
-    embedding_model
-)
-
+embed_model: SentenceTransformer = get_embedder()
 def generate_safe_chroma_id(node_id: str) -> str:
     """
     Generates a deterministic, safe-length ID for ChromaDB (< 128 bytes).

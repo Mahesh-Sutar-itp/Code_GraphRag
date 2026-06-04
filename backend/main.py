@@ -20,7 +20,7 @@ import logging
 
 logging.basicConfig(
     filename="app.log",
-    level=logging.ERROR,
+    level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 
